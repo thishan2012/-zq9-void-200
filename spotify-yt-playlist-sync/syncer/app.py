@@ -19,6 +19,7 @@ LOG = logging.getLogger('sync')
 UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537.36'
 STATE_PATH = Path('data/sync-state.json')
 OVERRIDES_PATH = Path('data/track-overrides.json')
+BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 PROXY_URL = 'https://corsly-proxy2.camdvr.org/'
 PARTNER_URL = 'https://api-partner.spotify.com/pathfinder/v2/query'
 # Unofficial web-player persisted queries; Spotify can rotate these at any time.
@@ -82,6 +83,17 @@ def totp(cipher):
     offset = digest[-1] & 15
     return f'{(struct.unpack(">I", digest[offset:offset+4])[0] & 0x7fffffff) % 1000000:06d}'
 
+def backoff_seconds(response, attempt):
+    """Honour Retry-After, otherwise exponential backoff capped at 60 seconds."""
+    value = (getattr(response, 'headers', None) or {}).get('Retry-After')
+    if value:
+        try:
+            return max(1.0, min(float(value), 120.0))
+        except (TypeError, ValueError):
+            pass
+    return min(60.0, 5.0 * (2 ** (attempt - 1)))
+
+
 class Client:
     def __init__(self, delay):
         self.http = requests.Session()
@@ -89,6 +101,7 @@ class Client:
         self.delay = delay
         self.spotify_backend = None
         self.partner_proxy = True
+        self.retries = 3
 
     def request(self, method, url, *, fatal=False, write=False, label='Service', proxy=False, **kwargs):
         if proxy:
@@ -105,14 +118,25 @@ class Client:
             url = PROXY_URL + '?' + urlencode({'url': target})
             # A redirect could forward the bearer token to an untrusted host.
             kwargs['allow_redirects'] = False
-        if self.delay:
-            time.sleep(self.delay)
-        try:
-            response = self.http.request(method, url, timeout=30, **kwargs)
-        except requests.RequestException as exc:
-            if write:
-                raise UncertainWrite('Spotify add request had a network error; outcome unknown. Check the playlist before clearing the pending entry.') from exc
-            raise (FatalError if fatal else SyncError)(f'{label}: network error during {method} request') from exc
+        # Read-only requests are retried after HTTP 429/5xx, honouring Retry-After.
+        # Writes are never retried: an add may already have been applied.
+        attempt = 0
+        while True:
+            if self.delay:
+                time.sleep(self.delay)
+            try:
+                response = self.http.request(method, url, timeout=30, **kwargs)
+            except requests.RequestException as exc:
+                if write:
+                    raise UncertainWrite('Spotify add request had a network error; outcome unknown. Check the playlist before clearing the pending entry.') from exc
+                raise (FatalError if fatal else SyncError)(f'{label}: network error during {method} request') from exc
+            if not write and (response.status_code == 429 or response.status_code >= 500) and attempt < self.retries:
+                attempt += 1
+                wait = max(self.delay, backoff_seconds(response, attempt))
+                LOG.warning('%s: HTTP %s; retrying in %.0fs (attempt %d/%d)', label, response.status_code, wait, attempt, self.retries)
+                time.sleep(wait)
+                continue
+            break
         if proxy and 300 <= response.status_code < 400:
             if write:
                 raise UncertainWrite('Proxy redirected Spotify add; outcome unknown. Check the playlist before clearing pending')
@@ -163,6 +187,7 @@ class Client:
     def youtube(self, key, playlist):
         videos = []
         page = None
+        pages = 0
         while True:
             params = {'part': 'snippet', 'maxResults': 50, 'playlistId': playlist, 'key': key}
             if page:
@@ -174,6 +199,8 @@ class Client:
                 if video:
                     videos.append({'id': video, 'title': snippet.get('title', ''), 'channel': snippet.get('videoOwnerChannelTitle', '')})
             page = data.get('nextPageToken')
+            pages += 1
+            LOG.info('YouTube played items read: page %d, %d video(s) so far', pages, len(videos))
             if not page:
                 break
 
@@ -200,6 +227,8 @@ class Client:
                     content = item.get('contentDetails') or {}
                     if isinstance(content, dict):
                         video['duration_ms'] = youtube_duration_ms(content.get('duration'))
+        LOG.info('YouTube playlist loaded: %d item(s) in %d page(s), %d unique video(s)',
+                 len(videos), pages, len({video['id'] for video in videos}))
         return videos
 
     def gql(self, operation, variables, token, *, write=False):
@@ -331,15 +360,22 @@ class Client:
         return results
 
     def add(self, playlist, track, token):
+        self.add_batch(playlist, [track], token)
+
+    def add_batch(self, playlist, tracks, token):
+        """Add up to BATCH_MAX tracks in one request (Spotify allows 100 per call)."""
+        uris = [f'spotify:track:{track}' for track in tracks]
+        if not uris or len(uris) > BATCH_MAX:
+            raise FatalError('Spotify batch add size is out of range')
         if self.spotify_backend == 'rest':
             self.request('POST', f'https://api.spotify.com/v1/playlists/{playlist}/items',
-                    headers={'Authorization': f'Bearer {token}'}, json={'uris': [f'spotify:track:{track}']},
+                    headers={'Authorization': f'Bearer {token}'}, json={'uris': uris},
                     write=True, proxy=True, label='Spotify proxied playlist add')
             return
         if self.spotify_backend != 'web-player':
             raise FatalError('Spotify backend was not initialized')
         data = self.gql('addToPlaylist', {'playlistUri': f'spotify:playlist:{playlist}',
-                  'playlistItemUris': [f'spotify:track:{track}'],
+                  'playlistItemUris': uris,
                   'newPosition': {'moveType': 'BOTTOM_OF_PLAYLIST', 'fromUid': None},
                   'interactionId': None}, token, write=True)
         result = data.get('addItemsToPlaylist')
@@ -350,12 +386,13 @@ class Client:
         if not token or not chat:
             LOG.warning('Telegram not configured; summary only in Actions log')
             return
-        try:
-            r = self.http.post(f'https://api.telegram.org/bot{token}/sendMessage', json={'chat_id': chat, 'text': message, 'disable_web_page_preview': True}, timeout=20)
-            if not r.ok:
-                LOG.warning('Telegram delivery failed (HTTP %s)', r.status_code)
-        except requests.RequestException:
-            LOG.warning('Telegram delivery failed (network error)')
+        for chunk in utf16_chunks(message):
+            try:
+                r = self.http.post(f'https://api.telegram.org/bot{token}/sendMessage', json={'chat_id': chat, 'text': chunk, 'disable_web_page_preview': True}, timeout=20)
+                if not r.ok:
+                    LOG.warning('Telegram delivery failed (HTTP %s)', r.status_code)
+            except requests.RequestException:
+                LOG.warning('Telegram delivery failed (network error)')
 
 def youtube_duration_ms(value):
     """Read the ISO-8601 duration returned by YouTube videos.list."""
@@ -700,11 +737,63 @@ def issue_text(value, limit=600):
     text = ''.join(ch for ch in text if ch.isprintable())
     return text if len(text) <= limit else text[:limit - 1] + '…'
 
-def report_issue(issues, status, video, reason, track_id=None):
+def report_issue(issues, status, video, reason, track_id=None, method=None):
     if issues is not None:
         issues.append({'status': status, 'title': issue_text(video.get('title')) or '(title unavailable)',
                        'channel': issue_text(video.get('channel')), 'video_id': video.get('id'),
-                       'reason': issue_text(reason), 'track_id': track_id})
+                       'reason': issue_text(reason), 'track_id': track_id, 'method': method})
+
+def utf16_chunks(text, limit=4000):
+    """Split plain text on line boundaries so Telegram limits are never exceeded."""
+    chunks, current = [], ''
+    for line in str(text).split('\n'):
+        while len(line.encode('utf-16-le')) // 2 > limit:
+            # A single over-long line: cut it without splitting a surrogate pair.
+            cut = len(line)
+            while cut > 1 and len(line[:cut].encode('utf-16-le')) // 2 > limit:
+                cut -= 1
+            if current:
+                chunks.append(current)
+                current = ''
+            chunks.append(line[:cut])
+            line = line[cut:]
+        candidate = f'{current}\n{line}' if current else line
+        if len(candidate.encode('utf-16-le')) // 2 > limit:
+            chunks.append(current)
+            current = line
+        else:
+            current = candidate
+    if current:
+        chunks.append(current)
+    return [chunk for chunk in chunks if chunk.strip()]
+
+
+def activity_messages(header, events):
+    """Full per-song log for Telegram: every ADD, SKIP and FAIL entry."""
+    limit = 4000
+    def size(text):
+        return len(text.encode('utf-16-le')) // 2
+    messages = [header]
+    for event in events:
+        block = f"#{event['n']} {event['status']}: {event['title']}"
+        if event.get('channel'):
+            block += f"\nChannel: {issue_text(event['channel'], 120)}"
+        video_id = event.get('video_id')
+        if isinstance(video_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id):
+            block += f'\nYouTube: https://www.youtube.com/watch?v={video_id}'
+        elif video_id:
+            block += f"\nYouTube ID: {issue_text(video_id, 100)}"
+        if event.get('method'):
+            block += f"\nMatch: {event['method']}"
+        track_id = event.get('track_id')
+        if isinstance(track_id, str) and re.fullmatch(r'[A-Za-z0-9]{22}', track_id):
+            block += f'\nSpotify: https://open.spotify.com/track/{track_id}'
+        block += f"\nReason: {event['reason']}"
+        if size(messages[-1] + '\n\n' + block) > limit:
+            messages.append(header + ' (continued)')
+        messages[-1] += '\n\n' + block
+    return messages
+
 
 def telegram_messages(summary, issues):
     """Split at issue boundaries; Telegram allows at most 4096 UTF-16 units."""
@@ -713,6 +802,9 @@ def telegram_messages(summary, issues):
         return len(text.encode('utf-16-le')) // 2
     messages = [summary]
     for issue in issues:
+        if issue['status'] in ('ADD', 'WOULD ADD'):
+            # Successful additions are only listed in the full-log messages.
+            continue
         lines = [f"{issue['status']}: {issue['title']}"]
         if issue['channel']:
             lines.append(f"Channel: {issue['channel']}")
@@ -731,21 +823,80 @@ def telegram_messages(summary, issues):
         messages[-1] += '\n\n' + block
     return messages
 
-def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None, issues=None):
+def pending_items(db):
+    """Read the pending write record, accepting the older single-item format."""
+    pending = db.get('pending')
+    if not pending:
+        return []
+    items = pending.get('items')
+    if isinstance(items, list):
+        return [i for i in items if isinstance(i, dict) and isinstance(i.get('track'), str)]
+    if isinstance(pending.get('track'), str):
+        return [{'video': pending.get('video'), 'track': pending['track']}]
+    raise FatalError('Invalid pending entry in data/sync-state.json; inspect it manually')
+
+
+def flush_batch(client, playlist, token, state, db, queue, chunk_size, counts, issues):
+    """Send the head of the queue as one Spotify request, then persist the result."""
+    chunk = queue[:chunk_size]
+    tracks = [item['track'] for item in chunk]
+    db['pending'] = {'items': [{'video': i['video'], 'track': i['track']} for i in chunk]}
+    save_state(STATE_PATH, state)
+    try:
+        if hasattr(client, 'add_batch'):
+            client.add_batch(playlist, tracks, token)
+        else:  # duck-typed clients that only expose single-track adds
+            for track in tracks:
+                client.add(playlist, track, token)
+    except UncertainWrite as exc:
+        # The batch may have been applied (fully or partly). Report every item
+        # in it, leave pending set, and stop: never retry an ambiguous write.
+        for item in chunk:
+            counts['fail'] += 1
+            report_issue(issues, 'FAIL', item['meta'], str(exc), item['track'], item.get('method'))
+        raise
+    except SyncError as exc:
+        # A definite rejection means nothing was written; clear pending so the
+        # next run can retry these tracks instead of stopping the whole sync.
+        db['pending'] = None
+        save_state(STATE_PATH, state)
+        for item in chunk:
+            counts['fail'] += 1
+            report_issue(issues, 'FAIL', item['meta'], str(exc), item['track'])
+            LOG.warning('FAIL %s: %s', item['video'], exc)
+    else:
+        for item in chunk:
+            db['videos'][item['video']] = item['track']
+            counts['add'] += 1
+            report_issue(issues, 'ADD', item['meta'], 'Added to Spotify', item['track'], item.get('method'))
+            LOG.info('ADD %s -> %s', item['video'], item['track'])
+        db['pending'] = None
+        save_state(STATE_PATH, state)
+    del queue[:len(chunk)]
+
+
+def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None, issues=None,
+         batch_size=BATCH_MAX):
     overrides = overrides or {}
+    batch_size = max(1, min(int(batch_size or BATCH_MAX), BATCH_MAX))
     db = state['playlists'].setdefault(playlist, {'videos': {}, 'pending': None})
     existing = client.existing_tracks(playlist, token)  # Fail closed if we cannot check duplicates.
     planned = set()
-    pending = db.get('pending')
-    if pending:
-        if pending['track'] in existing:
-            LOG.warning('Previous uncertain add is present in Spotify; recording it')
-            if not dry_run:
-                db['videos'][pending['video']] = pending['track']
-                db['pending'] = None
-                save_state(STATE_PATH, state)
-        else:
-            raise FatalError('Previous add outcome is uncertain and track was not found. Check Spotify manually, then clear pending in data/sync-state.json before retrying.')
+    queued = set()
+    seen = set()
+    queue = []
+    fatal = None
+    for item in pending_items(db):
+        if item['track'] not in existing:
+            raise FatalError('Previous add outcome is uncertain and the track was not found. Check Spotify manually, then clear pending in data/sync-state.json before retrying.')
+    if db.get('pending'):
+        LOG.warning('Previous uncertain add is present in Spotify; recording it')
+        if not dry_run:
+            for item in pending_items(db):
+                if isinstance(item.get('video'), str):
+                    db['videos'][item['video']] = item['track']
+            db['pending'] = None
+            save_state(STATE_PATH, state)
     for video in videos:
         vid = video['id']
         if vid in db['videos']:
@@ -753,15 +904,24 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
             report_issue(issues, 'SKIP', video, 'Already recorded in the sync database', db['videos'][vid])
             LOG.info('SKIP %s: already recorded', vid)
             continue
+        if vid in seen:
+            # The same video appears twice in the YouTube playlist.
+            counts['skip'] += 1
+            report_issue(issues, 'SKIP', video, 'Duplicate video in the YouTube playlist')
+            LOG.info('SKIP %s: duplicate video in the YouTube playlist', vid)
+            continue
+        seen.add(vid)
         if video['title'].strip().casefold() in ('', 'private video', 'deleted video'):
             counts['skip'] += 1
             report_issue(issues, 'SKIP', video, 'Unavailable or missing video title')
             LOG.info('SKIP %s: unavailable or missing video title', vid)
             continue
         tid = None
+        method = None
         try:
             tid = overrides.get(vid)
             if tid:
+                method = 'MANUAL'
                 # Explicit user choice bypasses automatic metadata matching; it
                 # must still follow the same duplicate and pending-write logic.
                 LOG.info('MANUAL MATCH %s -> %s (user-selected; version not automatically verified)', vid, tid)
@@ -787,42 +947,37 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 tid = track['id']
                 artist_names = ', '.join(a.get('name', '') for a in track.get('artists', []))
                 LOG.info('%s MATCH %s: %s — %s', method, vid, log_text(track['name']), log_text(artist_names))
+            if tid in planned or tid in queued:
+                # Two videos resolved to the same track: add it only once.
+                counts['skip'] += 1
+                reason = 'Same track already planned in this dry run' if dry_run else 'Same track already planned in this run'
+                report_issue(issues, 'SKIP', video, reason, tid, method)
+                LOG.info('SKIP %s: %s', vid, reason)
+                continue
             if tid in existing:
                 counts['skip'] += 1
-                reason = ('Same track already planned in this dry run' if tid in planned
-                          else 'Track already in Spotify playlist')
-                report_issue(issues, 'SKIP', video, reason, tid)
-                LOG.info('SKIP %s: %s', vid, reason)
+                report_issue(issues, 'SKIP', video, 'Track already in Spotify playlist', tid, method)
+                LOG.info('SKIP %s: track already in Spotify playlist', vid)
                 if not dry_run:
                     db['videos'][vid] = tid
                     save_state(STATE_PATH, state)
                 continue
             if dry_run:
                 counts['add'] += 1
-                existing.add(tid)
                 planned.add(tid)
+                report_issue(issues, 'WOULD ADD', video, 'Dry run: no Spotify or database change', tid, method)
                 LOG.info('WOULD ADD %s -> %s', vid, tid)
                 continue
-            db['pending'] = {'video': vid, 'track': tid}
-            save_state(STATE_PATH, state)
-            try:
-                client.add(playlist, tid, token)
-            except UncertainWrite:
-                raise
-            except SyncError:
-                db['pending'] = None
-                save_state(STATE_PATH, state)
-                raise
-            existing.add(tid)
-            db['videos'][vid] = tid
-            db['pending'] = None
-            save_state(STATE_PATH, state)
-            counts['add'] += 1
-            LOG.info('ADD %s -> %s', vid, tid)
+            queue.append({'video': vid, 'track': tid, 'meta': video, 'method': method})
+            queued.add(tid)
+            if len(queue) >= batch_size:
+                flush_batch(client, playlist, token, state, db, queue, batch_size, counts, issues)
+                queued.difference_update(tid for tid in list(queued) if tid in existing)
         except FatalError as exc:
             counts['fail'] += 1
             report_issue(issues, 'FAIL', video, str(exc), tid)
-            raise
+            fatal = exc
+            break
         except SyncError as exc:
             counts['fail'] += 1
             report_issue(issues, 'FAIL', video, str(exc), tid)
@@ -831,6 +986,22 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
             counts['fail'] += 1
             report_issue(issues, 'FAIL', video, 'Database file I/O error; sync stopped', tid)
             raise
+    def drain():
+        while queue:
+            try:
+                flush_batch(client, playlist, token, state, db, queue, batch_size, counts, issues)
+            except OSError:
+                counts['fail'] += 1
+                report_issue(issues, 'FAIL', queue[0]['meta'], 'Database file I/O error; sync stopped',
+                             queue[0]['track'], queue[0].get('method'))
+                raise
+
+    if fatal:
+        # Tracks still queued were never sent; the next run retries them without
+        # duplicating anything already added in earlier batches.
+        raise fatal
+    drain()
+
 
 def main():
     parser = argparse.ArgumentParser(description='Experimental one-way YouTube to Spotify sync')
@@ -842,11 +1013,15 @@ def main():
     result = 'SUCCESS'
     fatal_reason = None
     client = Client(0)
+    batch_size = BATCH_MAX
     try:
         delay = float(os.environ.get('REQUEST_DELAY_SECONDS', '2'))
         if delay < 0 or delay > 60 or not delay < float('inf'):
             raise ValueError('delay out of range')
         client.delay = delay
+        batch_size = int(os.environ.get('SPOTIFY_BATCH_SIZE', str(BATCH_MAX)))
+        if not 1 <= batch_size <= BATCH_MAX:
+            raise ValueError('batch size out of range')
         yt = playlist_id(os.environ.get('YOUTUBE_PLAYLIST', ''), 'YouTube')
         spotify = playlist_id(os.environ.get('SPOTIFY_PLAYLIST', ''), 'Spotify')
         key = os.environ.get('YOUTUBE_API_KEY', '')
@@ -857,7 +1032,8 @@ def main():
         cookie = sp_dc_from_file(os.environ.get('SPOTIFY_COOKIE_FILE', 'cookies/spotify.txt'))
         videos = client.youtube(key, yt)
         token = client.token(cookie)
-        sync(client, videos, spotify, token, state, args.dry_run, counts, overrides=overrides, issues=issues)
+        sync(client, videos, spotify, token, state, args.dry_run, counts, overrides=overrides,
+             issues=issues, batch_size=batch_size)
         if counts['fail']:
             result = 'PARTIAL FAILURE'
     except (FatalError, ValueError, OSError) as exc:
@@ -872,8 +1048,14 @@ def main():
         if fatal_reason:
             summary += f'\nRun stopped: {issue_text(fatal_reason)}'
         LOG.info(summary)
-        for message in telegram_messages(summary, issues):
+        events = [dict(event, n=number) for number, event in enumerate(issues, start=1)]
+        LOG.info('Full report: %d event(s)', len(events))
+        for message in telegram_messages(summary, events):
             client.telegram(os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID'), message)
+        if events:
+            header = f"YouTube → Spotify full log ({'DRY RUN' if args.dry_run else 'SYNC'}): {len(events)} event(s)"
+            for message in activity_messages(header, events):
+                client.telegram(os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID'), message)
     return 0 if result == 'SUCCESS' else 1
 
 if __name__ == '__main__':

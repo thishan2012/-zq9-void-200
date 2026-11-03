@@ -189,6 +189,8 @@ class Tests(unittest.TestCase):
         client = SearchClient()
         state = {'version': 1, 'playlists': {}}
         with self.assertLogs('sync', level='INFO') as logs:
+            # The same video appears twice: the second copy is skipped without
+            # searching Spotify again.
             counts = self.run_sync(client, [video, video], state)
         self.assertEqual(client.queries, [('Artist', 'Shadowss (Official Video)'), ('', video['title'])])
         self.assertEqual(client.added, ['target'])
@@ -244,7 +246,8 @@ class Tests(unittest.TestCase):
         state = {'version': 1, 'playlists': {}}
         with self.assertRaises(app.UncertainWrite): self.run_sync(Uncertain(), [VIDEO], state)
         saved = app.load_state(self.path)
-        self.assertEqual(saved['playlists']['playlist']['pending']['track'], 't1')
+        self.assertEqual(saved['playlists']['playlist']['pending'],
+                         {'items': [{'video': 'v1', 'track': 't1'}]})
         with self.assertRaises(app.FatalError): self.run_sync(FakeClient(), [VIDEO], copy.deepcopy(saved))
         self.run_sync(FakeClient(['t1']), [VIDEO], saved)
         self.assertIsNone(app.load_state(self.path)['playlists']['playlist']['pending'])

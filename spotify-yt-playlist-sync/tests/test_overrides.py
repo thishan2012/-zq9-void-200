@@ -79,7 +79,7 @@ class OverrideTests(unittest.TestCase):
         client = Uncertain()
         with self.assertRaises(app.UncertainWrite): self.run_sync(client)
         pending = app.load_state(self.state_path)['playlists']['playlist']['pending']
-        self.assertEqual(pending, {'video': VIDEO['id'], 'track': TRACK_ID})
+        self.assertEqual(pending, {'items': [{'video': VIDEO['id'], 'track': TRACK_ID}]})
         self.assertEqual(client.added, [TRACK_ID])
 
     def test_unavailable_video_is_not_overridden(self):

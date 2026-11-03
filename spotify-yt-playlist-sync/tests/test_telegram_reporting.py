@@ -31,7 +31,7 @@ class TelegramReportingTests(unittest.TestCase):
         self.state_patch.start()
         self.addCleanup(self.state_patch.stop)
 
-    def test_skips_and_failure_details_no_successful_song_in_message(self):
+    def test_summary_message_has_only_skips_and_failures(self):
         videos = [
             {'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song', 'channel': 'Uploader'},
             {'id': 'BBBBBBBBBBB', 'title': 'Artist - No Match (Slowed)', 'channel': 'Release - Topic'},
@@ -42,6 +42,8 @@ class TelegramReportingTests(unittest.TestCase):
         issues = []
         app.sync(Client(), videos, 'playlist', 'token', {'version': 1, 'playlists': {}}, True, counts, issues=issues)
         self.assertEqual(counts, {'add': 1, 'skip': 2, 'fail': 1})
+        # The compact summary lists only skips and failures; the full log in
+        # test_full_log_lists_every_event covers successful songs.
         text = '\n'.join(app.telegram_messages('summary', issues))
         self.assertNotIn('Good Song', text)
         for snippet in ('SKIP: Artist - No Match (Slowed)', 'Release - Topic',
@@ -64,7 +66,8 @@ class TelegramReportingTests(unittest.TestCase):
         app.sync(Client(), [dict(base, id='AAAAAAAAAAA'), dict(base, id='BBBBBBBBBBB')],
                  'playlist', 'token', {'version': 1, 'playlists': {}}, True, counts, issues=issues)
         self.assertEqual(counts, {'add': 1, 'skip': 1, 'fail': 0})
-        self.assertEqual(issues[0]['reason'], 'Same track already planned in this dry run')
+        self.assertEqual(issues[0]['reason'], 'Dry run: no Spotify or database change')
+        self.assertEqual(issues[1]['reason'], 'Same track already planned in this dry run')
 
     def test_fatal_song_is_reported_and_stops(self):
         issues = []; counts = {'add': 0, 'skip': 0, 'fail': 0}
@@ -85,7 +88,8 @@ class TelegramReportingTests(unittest.TestCase):
                      {'version': 1, 'playlists': {}}, False, counts, issues=issues)
         self.assertEqual(issues[0]['track_id'], TRACK)
         self.assertIn('Outcome unknown', issues[0]['reason'])
-        self.assertEqual(app.load_state(self.path)['playlists']['playlist']['pending']['track'], TRACK)
+        self.assertEqual(app.load_state(self.path)['playlists']['playlist']['pending'],
+                         {'items': [{'video': 'AAAAAAAAAAA', 'track': TRACK}]})
 
     def test_splits_unicode_without_losing_any_issue(self):
         issues = []
@@ -121,9 +125,10 @@ class TelegramReportingTests(unittest.TestCase):
              patch.object(app, 'load_overrides', return_value={}), patch.dict('os.environ', env, clear=True), \
              patch.object(sys, 'argv', ['app', '--dry-run']):
             self.assertEqual(app.main(), 0)
-        message = client.telegram.call_args.args[2]
-        self.assertIn('Would add: 0 | Skipped: 1 | Failed: 0', message)
-        self.assertIn('SKIP: Artist - No Match', message)
+        messages = [call.args[2] for call in client.telegram.call_args_list]
+        self.assertIn('Would add: 0 | Skipped: 1 | Failed: 0', messages[0])
+        self.assertIn('SKIP: Artist - No Match', messages[0])
+        self.assertTrue(any('full log' in message for message in messages))
 
     def test_main_reports_global_fatal_before_any_song(self):
         client = Mock()

@@ -1,15 +1,41 @@
 # Spotify setup (experimental)
 
-1. The existing destination playlist URL is already set in `SPOTIFY_PLAYLIST` in `.github/workflows/sync.yml`. Your test Spotify account must be allowed to edit it. To use another destination, edit the URL there; for a local run, set the `SPOTIFY_PLAYLIST` environment variable instead.
-2. While logged in to the test account at open.spotify.com, export its cookies in **Netscape cookies.txt format** using a browser tool you trust. Place the export at `cookies/spotify.txt` in this private repository and commit/push it to the branch where the workflow runs. The file needs an unexpired `sp_dc` cookie for `spotify.com` or `open.spotify.com`; HttpOnly format is supported. Never share the file or paste it into chat, logs, or issues. No real cookie is supplied in this repo.
-3. Replace the file and commit the replacement when the cookie expires. The workflow reads it directly and never intentionally prints its value.
+1. The destination playlist URL is configured in `.github/workflows/sync.yml` (`SPOTIFY_PLAYLIST`) or with
+   the repository variable of the same name. Your Spotify account must be allowed to edit that playlist
+   (owner or collaborator). Spotify Free accounts may be refused — that shows up as HTTP 401/403.
+2. While logged in to the test account at open.spotify.com, export its cookies in **Netscape cookies.txt
+   format** with a browser tool you trust.
+3. Put the **whole export** into the repository **secret** `SPOTIFY_COOKIE` (multi-line secrets are fine;
+   the workflow writes them to a git-ignored file for the job and deletes it afterwards). The export needs
+   an unexpired `sp_dc` cookie for `spotify.com`; the `#HttpOnly_` prefix is supported.
+4. Never commit the cookie file, never paste it into chat/issues/logs. Rotate it when it expires by
+   replacing the secret.
 
-**Risk:** anyone who can read the repository or run code that can access it can use the cookie as the account. A cookie is not restricted to playlist-add permission. Private limits exposure, but Git history retains old values even after replacing/deleting the file. Use a disposable test account, sign out/revoke sessions if exposed, and never make this repo public with cookie history. GitHub Secrets would be safer, but this project uses the requested file-based approach.
+**Risk:** a cookie is not a permission-limited API key — anyone who reads it can act as that account. Use
+a disposable test account. If it leaks: Spotify → *Sign out everywhere* + password change, then issue a
+new cookie.
 
-The web-player cookie-to-token exchange uses a community-maintained TOTP version list from GitHub. Spotify can change this without notice. Search, reading and writing via web-player tokens are also unofficial and can fail due to permissions, region, rate limits or Spotify changes. A valid token does **not** guarantee permission to add. HTTP 401/403 stops the run rather than claiming songs were synced. Spotify API app credentials are not used.
+The token exchange uses a community-maintained TOTP version list from GitHub; Spotify can change this at
+any time. Search, playlist reads and adds via web-player tokens are unofficial and may be refused.
+HTTP 401/403 stops the run instead of pretending songs were synced. No Spotify app credentials are used.
 
-## Proxy and web-player experiment
+## Proxy and web-player backend
 
-The sync first tries the Web API via `https://corsly-proxy2.camdvr.org/`, then tries the web player's unofficial Pathfinder API if the playlist read returns 401, 403, 404, 405, 429 or 501. The proxy receives the **Spotify bearer access token** in the Authorization header. Only use this proxy if you trust its operator and hosting/logging setup. It must forward request headers, methods, bodies, response status and body unchanged. The login cookie itself is sent directly to Spotify, not through the proxy. YouTube API and Telegram requests also do not go through it. Redirects are not followed when forwarding credentials. If the proxied web-player read returns 401, 403, 405 or 501, the read is retried directly; writes use whichever web-player route succeeded during the read. A 401 can originate from the proxy or Spotify, so it does not by itself identify the problem. If the direct read also fails, check its status and the cookie/session. A working proxy and a successful read do not prove that playlist writes work.
+The sync first tries the Web API through `https://corsly-proxy2.camdvr.org/`, and falls back to the web
+player's Pathfinder API if a playlist **read** returns 401, 403, 404, 405, 429 or 501. Only reads fall
+back; the backend that successfully reads is the one used for writes, and a write is never retried.
 
-The web-player operations and hashes are unofficial, can break without warning and may be inconsistent with Spotify's terms. GraphQL search and playlist reading do not modify anything; a dry run tests these only, **not** the add operation. An ambiguous add result stops the run with a pending database entry instead of retrying, to reduce duplicates. Check the playlist and follow the recovery steps in `instructions/actions.md`. Never print or share the bearer token, cookie, API keys, or Telegram token.
+The proxy receives the **Spotify bearer access token** in the Authorization header. Only use it if you
+trust its operator and logging. Redirects are never followed when credentials are forwarded, and only
+`api.spotify.com` / `api-partner.spotify.com` may be sent through it. YouTube and Telegram requests never
+use it.
+
+## Rate limits and batching
+
+* `REQUEST_DELAY_SECONDS` (default 2) is applied before every request; for a 200-song playlist keep it at
+  1–2 s. This is what keeps 200 searches from tripping Spotify's rate limiter.
+* Read requests are retried after HTTP 429/5xx, honouring `Retry-After` (up to 3 attempts, exponential
+  backoff capped at 60 s). Writes are **never** retried.
+* Adds are sent in batches: `SPOTIFY_BATCH_SIZE` (default and maximum **100**), so 200 songs = 2 requests.
+  A batch that is rejected outright is reported and retried on the next run; a batch with an ambiguous
+  result stops the run with a `pending` record.

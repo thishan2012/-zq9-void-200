@@ -2,3 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 .env
+# A Spotify cookie is an account credential: keep it out of Git entirely.
+cookies/spotify.txt
+cookies/*.txt
+!cookies/README.md
+data/*.tmp

@@ -14,6 +14,9 @@ class SpotifyTransportTests(unittest.TestCase):
     def setUp(self):
         self.client = app.Client(0)
         self.client.http = Mock()
+        # Keep the 429/5xx backoff out of these tests; retries are covered
+        # separately in test_retries.py.
+        self.client.retries = 0
 
     def test_proxy_encodes_complete_url_and_forwards_auth(self):
         self.client.http.request.return_value = Response(200, {'items': [], 'next': None})

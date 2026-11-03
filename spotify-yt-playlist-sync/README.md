@@ -1,22 +1,162 @@
-# YouTube → Spotify playlist sync (testing)
+# YouTube → Spotify playlist sync (phonk edition, experimental)
 
-Experimental one-way sync from a **public or unlisted YouTube playlist** to an **existing Spotify playlist**. It searches by artist and title, skips uncertain matches and existing tracks, and records successful mappings in a JSON database. It never deletes tracks from Spotify. Runs twice daily via GitHub Actions or manually in dry-run mode, with a Telegram summary.
+Experimental **one-way** sync: a public or unlisted **YouTube playlist is the source of truth**, and
+tracks are only ever **added** to an existing **Spotify playlist**. Nothing is deleted. Duplicates are
+skipped, uncertain matches are skipped instead of guessed, and every decision is reported to Telegram.
 
-**Experimental:** Spotify cookie login and the use of its web-player token with playlist/search endpoints are unofficial and may stop working or reject writes (including HTTP 403). Spotify API requests first use the configured user-provided proxy and may fall back to unofficial web-player operations; see the Spotify setup guide for token exposure and proxy requirements. Neither successful authentication nor Spotify Free compatibility is guaranteed. Test with a dedicated account and use dry run first. The sync cannot be verified against your account until you provide your own configuration.
+Built for large phonk playlists (200+ songs), which is why it batches Spotify writes and stays inside
+API rate limits. Spotify cookie login and the web-player token flow are **unofficial** and may stop
+working at any time — always test with `--dry-run` first.
 
-## Setup
+---
 
-1. [YouTube API and playlist](instructions/youtube.md)
-2. [Spotify cookie and destination playlist](instructions/spotify.md)
-3. [Telegram bot](instructions/telegram.md)
-4. [GitHub Actions, schedules, dry run and troubleshooting](instructions/actions.md)
+## What it does, in one run
 
-Required repository **secret**: `YOUTUBE_API_KEY`. For Telegram summaries also set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. The two playlist URLs are configured directly in `.github/workflows/sync.yml`; change them there if needed. The Spotify cookie is read from `cookies/spotify.txt`, deliberately stored in this private repository as requested; **it is an account credential, not a permission-limited API key**. Never add it to a public repo or share it. Any repo reader and workflow with access can use it; old copies remain in Git history after replacement. See the Spotify instructions.
+1. **Read YouTube** with the official Data API: `playlistItems.list` in pages of 50 (`nextPageToken`
+   loop, so 200 videos = 4 pages), then `videos.list` in batches of 50 for description + duration.
+2. **Get a Spotify token** from your `sp_dc` cookie (TOTP flow, community-maintained version list).
+3. **Read the destination playlist** (existing track IDs) — fails closed if this is impossible.
+4. **Per video:** manual override → strict match → loose match → detail match → skip.
+5. **Skip anything already in the playlist** or already recorded in `data/sync-state.json`.
+6. **Batch add** the rest with up to **100 tracks per Spotify request** (2 requests for 200 songs).
+7. **Report**: short summary + a **full log of every song** (ADD / WOULD ADD / SKIP / FAIL) to Telegram,
+   and the same detail in the Actions log.
+8. **Persist** `data/sync-state.json` so the next run never adds the same song twice.
 
-The database is `data/sync-state.json`; a workflow commit persists it even if a later song fails. GitHub Actions needs permission to write to the branch. Schedules run only on the default branch; configuration and cookie must be available there. Runs can be delayed by GitHub.
+---
 
-## Local preview
+## 1. Secrets and variables to set
 
-Python 3.11+: `pip install -r requirements.txt`. Set `YOUTUBE_PLAYLIST`, `SPOTIFY_PLAYLIST`, `YOUTUBE_API_KEY` and optionally the Telegram variables in your environment (see instructions), place the cookie file, then run `python -m syncer.app --dry-run`. The playlist values in the workflow are not automatically used for local runs. Omit `--dry-run` to perform the sync. You can set `REQUEST_DELAY_SECONDS` (default 2, range 0–60) and `SPOTIFY_COOKIE_FILE` (default `cookies/spotify.txt`). Do not print secrets or export them into shell history.
+Go to **Settings → Secrets and variables → Actions** in *your private fork/copy* of this repo.
 
-Tests: `python -m unittest discover -s tests -v`.
+### Secrets (required)
+
+| Secret | What it is | Where to get it |
+|---|---|---|
+| `YOUTUBE_API_KEY` | YouTube Data API v3 key (read only) | Google Cloud Console → enable *YouTube Data API v3* → Credentials → API key. Restrict the key to that API. |
+| `SPOTIFY_COOKIE` | **Whole Netscape cookies.txt export** of the Spotify account, one single line per cookie, containing at least an unexpired `sp_dc` row | Log in at open.spotify.com → export cookies with a browser extension you trust (format: *Netscape cookies.txt*) |
+
+### Secrets (optional, needed for the Telegram log)
+
+| Secret | What it is |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | token from @BotFather |
+| `TELEGRAM_CHAT_ID` | your chat id (send the bot a message, then read `getUpdates`) |
+
+### Repository variables (optional overrides)
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `YOUTUBE_PLAYLIST` | placeholder URL in `sync.yml` | source playlist URL or ID |
+| `SPOTIFY_PLAYLIST` | placeholder URL in `sync.yml` | destination playlist URL or ID |
+| `REQUEST_DELAY_SECONDS` | `2` | delay before **every** request (0–60). Keep 1–2 for 200-song playlists. |
+| `SPOTIFY_BATCH_SIZE` | `100` | tracks per add request (1–100). Lower it if Spotify starts rejecting. |
+
+> ⚠️ **`SPOTIFY_COOKIE` is an account credential, not an API key.** Anyone who can read it can act as
+> that account. Use a disposable account, never commit the cookie file, and if it ever leaks,
+> sign out of all devices + change the password on Spotify.
+> In the workflow the cookie is written to a git-ignored file and deleted again at the end of the job.
+
+**Where to put your links:** open `.github/workflows/sync.yml` and either edit the two `env` lines
+(`YOUTUBE_PLAYLIST` / `SPOTIFY_PLAYLIST`, replacing the `REPLACE_WITH_YOUR_…` placeholders) or — better —
+create the two repository variables with the same names. Variables win over the placeholders.
+
+Accepted link formats:
+
+```
+https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxx
+https://open.spotify.com/playlist/26ADR9K06DZ826IsgTno1S
+spotify:playlist:26ADR9K06DZ826IsgTno1S
+```
+
+---
+
+## 2. Enable the workflow
+
+1. **Settings → Actions → General → Workflow permissions → Read and write permissions** (the bot commits
+   the state file back to the branch).
+2. Scheduled workflows only run from the **default branch**, so the workflow, the secrets and the current
+   `data/sync-state.json` must all live there.
+3. Schedule is `0 0,12 * * *` (UTC). GitHub cron is UTC only and can be delayed by many minutes.
+   Change the cron line if you want another time.
+4. Manual run: **Actions → YouTube to Spotify sync → Run workflow**, keep **dry_run** checked the first
+   time, then uncheck it.
+
+For a 200-song playlist expect roughly 5–10 minutes of wall clock (mostly the request delay and the
+matching searches), well inside the 180-minute job timeout.
+
+---
+
+## 3. How matching works
+
+| Step | What it searches | Rule |
+|---|---|---|
+| `MANUAL` | `data/track-overrides.json` | YouTube video ID → Spotify track ID. Bypasses all automatic checks. |
+| `STRICT` | `artist + title` | Canonical title equal **and** version signature equal **and** primary artist present. |
+| `LOOSE` | full video title | Title similarity ≥ 0.86, versions must still match, close ties are skipped. |
+| `DETAIL` | core title (version words removed) | Word order may differ, ≥ 0.86 with matching artist / ≥ 0.93 without, duration within `max(30 s, 25 %)`. |
+| `SKIP` | — | No confident match, private/deleted video, already in Spotify, or already recorded. |
+
+`version_signature()` keeps `Slowed`, `Ultra Slowed`, `Super Slowed`, `Sped Up`, `Extended`, `Reverb`,
+`8D`, `Nightcore`, `Remix`, `Live`, … apart, so a `(Slowed)` video is never mapped to the original track.
+`(Official Video)` / `(Lyrics)` are stripped before comparing.
+
+---
+
+## 4. Duplicate protection
+
+* `data/sync-state.json` records every YouTube video ID → Spotify track ID that was added.
+* Before each add, the destination playlist is read once and every existing track ID is skipped.
+* Two videos that resolve to the same track are added only once.
+* Before a batch add, a `pending` record with all tracks of that batch is written. If the HTTP result is
+  ambiguous (timeout, 5xx, GraphQL error), the run stops, keeps `pending`, and the next run reconciles
+  it: tracks visible in the playlist are recorded, and anything else needs one manual check.
+  Writes are **never retried automatically**.
+* A failed job mid-batch is safe: the batches that were written are already saved, the pending batch is
+  reconciled next run.
+
+---
+
+## 5. Local run
+
+```bash
+python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+export YOUTUBE_PLAYLIST='https://www.youtube.com/playlist?list=PL…'
+export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
+export YOUTUBE_API_KEY='…'
+# optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SPOTIFY_BATCH_SIZE
+.venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
+.venv/bin/python -m unittest discover -s tests -v   # 65 tests
+```
+
+The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
+
+---
+
+## 6. Telegram output
+
+Two kinds of messages per run:
+
+1. **Summary** — result, counts, and per-song details for `SKIP` / `FAIL` only.
+2. **Full log** — *every* song with index, status (`ADD`, `WOULD ADD`, `SKIP`, `FAIL`), channel, YouTube
+   link, matched method, Spotify link, and reason. Long logs are split at letter/song boundaries and stay
+   under Telegram's 4096-character limit.
+
+Both are also printed to the Actions log.
+
+---
+
+## 7. Files
+
+```
+.github/workflows/sync.yml   schedule, dry-run, cookie restore, state commit
+syncer/app.py                all logic (YouTube, Spotify transport, matching, batching, reports)
+data/sync-state.json         database: per playlist {videos, pending}
+data/track-overrides.json    manual YouTube → Spotify mappings
+instructions/*.md            YouTube / Spotify / Telegram / Actions details
+tests/                       65 unit tests (matching, transport, batching, rate limits, reporting)
+cookies/README.md            why the cookie file is not in Git
+```
+
+Docs: [YouTube](instructions/youtube.md) · [Spotify](instructions/spotify.md) ·
+[Telegram](instructions/telegram.md) · [Actions](instructions/actions.md)

@@ -1,6 +1,16 @@
 # Telegram notifications
 
-1. Create a bot through Telegram's official @BotFather and obtain its token.
-2. Start a chat with the bot and send it a message. Obtain your chat ID using Telegram's `getUpdates` API or another trusted method; handle the token like a password and don't share the API URL containing it.
-3. In GitHub Actions repository secrets set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Do not paste them in chat or commit them.
-4. The bot posts a summary at the end of each attempted sync: added (or would add), skipped and failed. Only skipped and failed songs get individual details: video title, channel (when available), YouTube link, reason, and Spotify link when a track ID is known. Successful additions are not listed individually. A failure that stops the whole run is also described in the summary, even if it occurred before any song could be processed. Already-recorded or duplicate songs are included as skips. If the report is long, it is sent as multiple messages; very long metadata is shortened to keep messages within Telegram's limits. The Actions log still includes individual ADD / SKIP / FAIL entries. Telegram delivery failure is reported in Actions logs but does not alter the sync result. If secrets are absent, the summary is logged only.
+1. Create a bot through Telegram's @BotFather and obtain its token.
+2. Start a chat with the bot and send it a message. Obtain your chat id with Telegram's `getUpdates` API or
+   another trusted method. Treat the token like a password.
+3. Set the repository secrets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`.
+4. Each run sends two kinds of messages:
+   * **Summary** — result (`SUCCESS` / `PARTIAL FAILURE` / `FAILED`), counts, and per-song details for
+     `SKIP` and `FAIL` only.
+   * **Full log** — every song of the run with index, status (`ADD`, `WOULD ADD`, `SKIP`, `FAIL`), channel,
+     YouTube link, match method (`MANUAL`/`STRICT`/`LOOSE`/`DETAIL`), Spotify link when known, and the
+     reason. This is what you review after a dry run.
+5. Messages longer than 4000 UTF-16 units are split on line/song boundaries; very long metadata is
+   shortened. Nothing is dropped.
+6. Telegram delivery failure is logged in Actions and does not change the sync result. If the secrets are
+   absent, both reports go to the Actions log only.
