@@ -8,12 +8,27 @@
 
 Branch protection තියෙනවා නම් bot එකට push කරන්න allow කරන්න, නැත්නම් state commit fail වෙනවා.
 
+## 1b. Workflow file එක තියෙන්න ඕන තැන
+
+GitHub workflow files කියවන්නේ **`.github/workflows/`** (repo root) එකෙන් විතරයි.
+Project folder එක ඇතුළේ (`spotify-yt-playlist-sync/.github/workflows/sync.yml`) තියෙන copy එක **reference** එකක් — Actions tab එකේ පේන්නේ නෑ. ඒ නිසා dry run checkbox එකත් පේන්නේ නෑ.
+ඔයා fork එකක් හදනවා නම් root එකේ `.github/workflows/sync.yml` එක තියෙනවද බලන්න.
+
 ## 2. Enable / Disable
 
 - Actions tab එකේ workflow එක **disabled** නම් → "I understand my workflows, go ahead and enable them"
 - Run එකක් manually: **Actions → YouTube to Spotify sync → Run workflow**
   - Branch: default branch
   - `dry_run`: ✅ (preview) / ❌ (ඇත්තටම add)
+
+## 2b. Dry run / live switches
+
+| ක්‍රමය | Dry run | Live |
+|---|---|---|
+| Manual run | `dry_run` ✅ (default) | `dry_run` ☐ |
+| Scheduled run | `SYNC_ENABLED` unset / `false` | `SYNC_ENABLED` = `true` |
+
+විස්තර: [12-dry-run.md](12-dry-run.md)
 
 ## 3. Schedule
 

@@ -1,0 +1,136 @@
+name: YouTube to Spotify sync
+
+# One-way sync: a public/unlisted YouTube playlist is the source of truth and
+# tracks are only ever ADDED to the Spotify playlist. Nothing is deleted.
+#
+# This file MUST stay at the repository root (.github/workflows/). GitHub only
+# reads workflow files from there, so the copy inside the project folder
+# (spotify-yt-playlist-sync/.github/workflows/sync.yml) never shows up in the
+# Actions tab. Keep the two in sync if you edit them.
+#
+# Configuration (no secret values are ever written into this file):
+#   secrets.YOUTUBE_API_KEY        YouTube Data API v3 key (read-only usage)
+#   secrets.SPOTIFY_COOKIE         Netscape cookie export containing sp_dc
+#   secrets.TELEGRAM_BOT_TOKEN     Telegram bot token (optional, full log)
+#   secrets.TELEGRAM_CHAT_ID       Telegram chat id (optional, full log)
+#   YOUTUBE_PLAYLIST / SPOTIFY_PLAYLIST  secrets, else variables
+#   vars.REQUEST_DELAY_SECONDS     optional, default 2 s
+#   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
+#   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
+
+on:
+  schedule:
+    # 00:00 and 12:00 UTC = 05:30 and 17:30 Sri Lanka. GitHub cron is UTC only
+    # and may be delayed. Scheduled runs are DRY RUNS unless the repository
+    # variable SYNC_ENABLED is set to 'true'.
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run - preview only (no Spotify writes, no database changes)'
+        type: boolean
+        default: true
+        required: false
+permissions:
+  contents: write
+concurrency:
+  group: playlist-sync-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: spotify-yt-playlist-sync
+    env:
+      # One switch for "really write", evaluated once:
+      #   manual run      -> honour the dry_run checkbox (checked = preview)
+      #   scheduled run   -> dry run unless SYNC_ENABLED == 'true'
+      DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) || (github.event_name == 'schedule' && vars.SYNC_ENABLED != 'true') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The cookie is an account credential, so it never lives in the repository.
+      # It is written to a git-ignored file just for this job.
+      - name: Restore Spotify cookie
+        env:
+          SPOTIFY_COOKIE: ${{ secrets.SPOTIFY_COOKIE }}
+        run: |
+          if [ -z "$SPOTIFY_COOKIE" ]; then
+            echo '::error::Repository secret SPOTIFY_COOKIE is not set (see instructions/03-spotify.md)'
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$SPOTIFY_COOKIE" > cookies/spotify.txt
+
+      - name: Sync playlists (dry run unless DRY_RUN=false)
+        id: sync
+        env:
+          # Secrets win over variables, so the links may live in either tab.
+          YOUTUBE_PLAYLIST: ${{ secrets.YOUTUBE_PLAYLIST || vars.YOUTUBE_PLAYLIST || 'https://www.youtube.com/playlist?list=REPLACE_WITH_YOUR_YOUTUBE_PLAYLIST_ID' }}
+          SPOTIFY_PLAYLIST: ${{ secrets.SPOTIFY_PLAYLIST || vars.SPOTIFY_PLAYLIST || 'https://open.spotify.com/playlist/REPLACE_WITH_YOUR_SPOTIFY_PLAYLIST_ID' }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Optional tuning; also accepted from the Secrets tab by mistake.
+          REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
+          SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
+        run: |
+          echo "::notice::Dry run = $DRY_RUN"
+          if [ "$DRY_RUN" = "true" ]; then
+            python -m syncer.app --dry-run
+          else
+            python -m syncer.app
+          fi
+
+      - name: Job summary
+        if: ${{ always() && steps.sync.outcome != 'skipped' }}
+        env:
+          REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
+          SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
+          SYNC_ENABLED: ${{ vars.SYNC_ENABLED }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            MODE='DRY RUN — nothing written to Spotify or the database'
+          else
+            MODE='LIVE SYNC — tracks added, database committed'
+          fi
+          {
+            echo "### YouTube → Spotify: $MODE"
+            echo
+            echo "| Setting | Value |"
+            echo "|---|---|"
+            echo "| Trigger | \`${{ github.event_name }}\` |"
+            echo "| Dry run | \`$DRY_RUN\` |"
+            echo "| Scheduled writes enabled | \`${SYNC_ENABLED:-false}\` |"
+            echo "| Request delay | \`$REQUEST_DELAY_SECONDS\` s |"
+            echo "| Batch size | \`$SPOTIFY_BATCH_SIZE\` |"
+            echo
+            echo 'Per-song detail (ADD / WOULD ADD / SKIP / FAIL) is in the "Sync playlists" log above and in the Telegram full log.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove cookie file
+        if: ${{ always() }}
+        run: rm -f cookies/spotify.txt
+
+      - name: Save sync database
+        if: ${{ always() && steps.sync.outcome != 'skipped' && env.DRY_RUN != 'true' }}
+        run: |
+          if git diff --quiet -- data/sync-state.json; then
+            echo 'No database changes.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/sync-state.json
+          git commit -m 'Update playlist sync state'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
