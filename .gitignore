@@ -1,0 +1,7 @@
+# Local secrets / generated files
+cookies/spotify.txt
+spotify-yt-playlist-sync/cookies/spotify.txt
+__pycache__/
+*.py[cod]
+.venv/
+.env

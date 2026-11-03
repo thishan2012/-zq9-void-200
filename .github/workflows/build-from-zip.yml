@@ -1,0 +1,66 @@
+name: Build extracted project from zip
+
+# The repository ships spotify-yt-playlist-sync-project.zip. This workflow
+# extracts it and runs the unit tests, so the extracted copy can always be
+# reproduced from the archive, and it scans for accidentally committed
+# credentials (the original archive held a live Spotify sp_dc cookie).
+#
+# This workflow never writes back to the repository: it only reads and
+# uploads an artifact built in the runner's temporary directory.
+
+on:
+  push:
+    paths:
+      - 'spotify-yt-playlist-sync-project.zip'
+      - '.github/workflows/build-from-zip.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract archive
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/extracted
+          mkdir -p /tmp/extracted
+          unzip -q spotify-yt-playlist-sync-project.zip -d /tmp/extracted
+          src=/tmp/extracted/spotify-yt-playlist-sync
+          test -f "$src/syncer/app.py"
+          echo "Extracted $(find "$src" -type f | wc -l) files"
+
+      - name: Refuse real cookie values in the archive
+        run: |
+          set -euo pipefail
+          src=/tmp/extracted/spotify-yt-playlist-sync
+          # A real Netscape row has >= 7 tab-separated fields and a non-comment
+          # domain in field 1. Instructions mentioning sp_dc are fine; a value is not.
+          if find "$src" -path '*/cookies/*' -type f -exec grep -lP '^#?HttpOnly_?\S*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]+\t\S+' {} + 2>/dev/null; then
+            echo 'Refusing to continue: a real Netscape cookie file is present in the archive'
+            exit 1
+          fi
+          echo 'No cookie values found.'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r /tmp/extracted/spotify-yt-playlist-sync/requirements.txt
+
+      - name: Run unit tests
+        working-directory: /tmp/extracted/spotify-yt-playlist-sync
+        run: python -m unittest discover -s tests -v
+
+      - name: Upload extracted sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotify-yt-playlist-sync-src
+          path: /tmp/extracted/spotify-yt-playlist-sync
+          if-no-files-found: error

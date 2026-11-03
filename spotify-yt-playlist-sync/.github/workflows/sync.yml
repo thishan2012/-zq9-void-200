@@ -1,0 +1,90 @@
+name: YouTube to Spotify sync
+
+# One-way sync: a public/unlisted YouTube playlist is the source of truth and
+# tracks are only ever ADDED to the Spotify playlist. Nothing is deleted.
+#
+# Sources of configuration (secrets are never written into this file):
+#   secrets.YOUTUBE_API_KEY        YouTube Data API v3 key (read-only usage)
+#   secrets.SPOTIFY_COOKIE         Netscape cookie export containing sp_dc
+#   secrets.TELEGRAM_BOT_TOKEN     Telegram bot token (optional, full log)
+#   secrets.TELEGRAM_CHAT_ID       Telegram chat id (optional, full log)
+#   vars.YOUTUBE_PLAYLIST          source playlist URL (optional override)
+#   vars.SPOTIFY_PLAYLIST          destination playlist URL (optional override)
+
+on:
+  schedule:
+    # 00:00 and 12:00 UTC. GitHub cron is UTC only and can be delayed.
+    - cron: '0 0,12 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Preview only (no Spotify writes, no database changes)'
+        type: boolean
+        default: true
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: playlist-sync-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # The cookie is an account credential, so it never lives in the repository.
+      # It is written to a git-ignored file just for this job.
+      - name: Restore Spotify cookie
+        env:
+          SPOTIFY_COOKIE: ${{ secrets.SPOTIFY_COOKIE }}
+        run: |
+          if [ -z "$SPOTIFY_COOKIE" ]; then
+            echo '::error::Repository secret SPOTIFY_COOKIE is not set (see instructions/spotify.md)'
+            exit 1
+          fi
+          umask 077
+          printf '%s\n' "$SPOTIFY_COOKIE" > cookies/spotify.txt
+
+      - name: Sync playlists
+        id: sync
+        env:
+          YOUTUBE_PLAYLIST: ${{ vars.YOUTUBE_PLAYLIST || 'https://www.youtube.com/playlist?list=REPLACE_WITH_YOUR_YOUTUBE_PLAYLIST_ID' }}
+          SPOTIFY_PLAYLIST: ${{ vars.SPOTIFY_PLAYLIST || 'https://open.spotify.com/playlist/REPLACE_WITH_YOUR_SPOTIFY_PLAYLIST_ID' }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || '2' }}
+          SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || '100' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            python -m syncer.app --dry-run
+          else
+            python -m syncer.app
+          fi
+
+      - name: Remove cookie file
+        if: ${{ always() }}
+        run: rm -f cookies/spotify.txt
+
+      - name: Save sync database
+        if: ${{ always() && steps.sync.outcome != 'skipped' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        run: |
+          if git diff --quiet -- data/sync-state.json; then
+            echo 'No database changes.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add data/sync-state.json
+          git commit -m 'Update playlist sync state'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
