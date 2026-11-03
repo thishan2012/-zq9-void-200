@@ -78,8 +78,9 @@ spotify:playlist:26ADR9K06DZ826IsgTno1S
    the state file back to the branch).
 2. Scheduled workflows only run from the **default branch**, so the workflow, the secrets and the current
    `data/sync-state.json` must all live there.
-3. Schedule is `0 0,12 * * *` (UTC). GitHub cron is UTC only and can be delayed by many minutes.
-   Change the cron line if you want another time.
+3. Schedule is `0 */4 * * *` — **six runs a day**, every 4 hours (00/04/08/12/16/20 UTC =
+   05:30/09:30/13:30/17:30/21:30/01:30 Sri Lanka). GitHub cron is UTC only and can be delayed.
+   Runs with no new songs are quick because already-saved videos are skipped without a search.
 4. Manual run: **Actions → YouTube to Spotify sync → Run workflow**, keep **dry_run** checked the first
    time (it is the default), then uncheck it for the real sync. Full detail:
    [instructions/12-dry-run.md](instructions/12-dry-run.md).
@@ -109,7 +110,9 @@ matching searches), well inside the 180-minute job timeout.
 
 ## 4. Duplicate protection
 
-* `data/sync-state.json` records every YouTube video ID → Spotify track ID that was added.
+* `data/sync-state.json` records every YouTube video ID → Spotify track ID that was added. The bot
+  commits it after each live run, and every run prints a `🗄️ Database` table (saved songs per playlist)
+  in its Job summary. Check it locally with `python -m syncer.app --db-summary`.
 * Before each add, the destination playlist is read once and every existing track ID is skipped.
 * Two videos that resolve to the same track are added only once.
 * Before a batch add, a `pending` record with all tracks of that batch is written. If the HTTP result is

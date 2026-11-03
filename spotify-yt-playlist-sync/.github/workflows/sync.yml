@@ -13,8 +13,14 @@ name: YouTube to Spotify sync
 
 on:
   schedule:
-    # 00:00 and 12:00 UTC. GitHub cron is UTC only and can be delayed.
-    - cron: '0 0,12 * * *'
+    # 6 runs a day, every 4 hours (UTC). Public repos have unlimited Actions
+    # minutes, so 6 short runs cost nothing; a run with no new songs is quick
+    # because already-recorded videos are skipped without any Spotify search.
+    #   00, 04, 08, 12, 16, 20 UTC = 05:30, 09:30, 13:30, 17:30, 21:30, 01:30 (SL)
+    # GitHub cron is UTC only and may be delayed.
+    # Scheduled runs are DRY RUNS unless the repository variable SYNC_ENABLED
+    # is set to 'true'.
+    - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       dry_run:

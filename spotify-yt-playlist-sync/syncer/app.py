@@ -1003,12 +1003,47 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
     drain()
 
 
+def db_stats(state):
+    """Count saved songs and pending items per playlist."""
+    rows = []
+    for playlist, db in sorted((state.get('playlists') or {}).items()):
+        db = db if isinstance(db, dict) else {}
+        pending = db.get('pending')
+        rows.append((playlist,
+                     len(db.get('videos') or {}),
+                     len(pending.get('items') or []) if isinstance(pending, dict) else 0))
+    return rows
+
+
+def db_summary(path, title='Database'):
+    """Markdown summary of the sync database, safe to print in a job summary."""
+    try:
+        state = load_state(path)
+    except FatalError as exc:
+        return f'### 🗄️ {title}\n\nCould not read `{path}`: {exc}\n'
+    rows = db_stats(state)
+    lines = [f'### 🗄️ {title}', '', '| Playlist | Saved songs | Pending |', '|---|---|---|']
+    if rows:
+        lines += [f'| `{playlist}` | **{saved}** | {pending or "—"} |' for playlist, saved, pending in rows]
+    else:
+        lines.append('| (empty) | 0 | — |')
+    total = sum(saved for _, saved, _ in rows)
+    lines += ['', f'**Total saved songs: {total}**',
+              '', 'A dry run never changes this file; a live run commits it back to the branch.']
+    return '\n'.join(lines) + '\n'
+
+
 def main():
     parser = argparse.ArgumentParser(description='Experimental one-way YouTube to Spotify sync')
     parser.add_argument('--dry-run', action='store_true',
                         help='preview only: read YouTube and Spotify, search, but write nothing '
                              '(no Spotify change, no database change). Also enabled by DRY_RUN=true.')
+    parser.add_argument('--db-summary', action='store_true',
+                        help='print a markdown summary of the sync database and exit')
     args = parser.parse_args()
+    if args.db_summary:
+        print(db_summary(STATE_PATH), end='')
+        return 0
     # The workflow sets DRY_RUN, so the same switch works locally and in Actions.
     if os.environ.get('DRY_RUN', '').strip().lower() == 'true':
         args.dry_run = True

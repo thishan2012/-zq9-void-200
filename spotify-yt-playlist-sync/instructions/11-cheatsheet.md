@@ -25,7 +25,7 @@ SPOTIFY_BATCH_SIZE    = 100    (1–100; tracks per add request)
 | `REQUEST_DELAY_SECONDS` | `2` |
 | `SPOTIFY_BATCH_SIZE` | `100` |
 | `SYNC_ENABLED` | unset (scheduled runs stay dry) |
-| Schedule | `0 0,12 * * *` UTC = 05:30 / 17:30 SL |
+| Schedule | `0 */4 * * *` UTC = දවසට 6 (05:30, 09:30, 13:30, 17:30, 21:30, 01:30 SL) |
 | Job timeout | 180 min |
 | Retries (reads) | 3, `Retry-After` respected |
 | Retries (writes) | 0 — never |
@@ -54,6 +54,9 @@ python -m syncer.app
 
 # check cookie (value print වෙන්නේ නෑ)
 awk -F'\t' '$6=="sp_dc"{print "sp_dc found, length", length($7)}' cookies/spotify.txt
+
+# database summary (saved songs per playlist)
+python -m syncer.app --db-summary
 
 # state backup
 cp data/sync-state.json ~/sync-state-$(date +%F).json

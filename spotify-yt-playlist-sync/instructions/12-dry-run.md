@@ -83,7 +83,7 @@ INFO DRY RUN: nothing will be written to Spotify and the database will not chang
 | Playlist එකේ දැනට තියෙන tracks කියවනවා | ✅ | ✅ |
 | Spotify search | ✅ | ✅ |
 | **Batch add** | ❌ | ✅ |
-| `data/sync-state.json` වෙනස් වීම | ❌ | ✅ |
+| `data/sync-state.json` වෙනස් වීම | ❌ (saved songs 0 වැඩි වෙන්නේ නෑ) | ✅ |
 | Bot commit | ❌ | ✅ |
 | Telegram summary + full log | ✅ (`WOULD ADD` කියලා) | ✅ (`ADD` කියලා) |
 | Existing tracks skip | ✅ (report වෙනවා) | ✅ |
@@ -140,10 +140,15 @@ Dry run එකේදී add request එක යන්නේ නෑ. ඒ නිස
 
 ---
 
+## F2. Dry run එකේදී database එක
+
+Dry run එකේදී **කිසිම සින්දුවක් save වෙන්නේ නෑ**. Job summary එකේ `🗄️ Database` table එකේ ඒ නිසා පරණ ගණනම පේනවා.
+Live run එකකින් පස්සේ ඒ ගණන වැඩි වෙනවා + `data/sync-state.json` commit එකක් එනවා ("Update playlist sync state").
+
 ## G. ඉක්මන් recap
 
 ```text
 පළමුව  : Run workflow + dry_run ✅   → full log බලන්න
 හරි නම් : Run workflow + dry_run ☐    → tracks add වෙනවා + DB commit
-ඊට පස්සේ: SYNC_ENABLED=true (variable) → දවසට 2ක් auto
+ඊට පස්සේ: SYNC_ENABLED=true (variable) → දවසට 6ක් auto (හැම 4 පැයකට)
 ```
