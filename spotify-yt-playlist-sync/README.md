@@ -153,10 +153,42 @@ Both are also printed to the Actions log.
 syncer/app.py                all logic (YouTube, Spotify transport, matching, batching, reports)
 data/sync-state.json         database: per playlist {videos, pending}
 data/track-overrides.json    manual YouTube → Spotify mappings
-instructions/*.md            YouTube / Spotify / Telegram / Actions details
+instructions/00…11-*.md      A–Z guides (start at instructions/README.md)
 tests/                       65 unit tests (matching, transport, batching, rate limits, reporting)
 cookies/README.md            why the cookie file is not in Git
 ```
 
-Docs: [YouTube](instructions/youtube.md) · [Spotify](instructions/spotify.md) ·
-[Telegram](instructions/telegram.md) · [Actions](instructions/actions.md)
+## 📚 Docs
+
+**A–Z guides:** [`instructions/README.md`](instructions/README.md) — index එකෙන් පටන් ගන්න.
+
+| # | Guide |
+|---|---|
+| 00 | [QUICKSTART](instructions/00-QUICKSTART.md) |
+| 01 | [Repository secrets / variables (+ "To the one who knows the secrets")](instructions/01-repository-secrets.md) |
+| 02 | [YouTube](instructions/02-youtube.md) |
+| 03 | [Spotify (cookie, token, rate limit, batch)](instructions/03-spotify.md) |
+| 04 | [Telegram (summary + full log)](instructions/04-telegram.md) |
+| 05 | [GitHub Actions](instructions/05-github-actions.md) |
+| 06 | [How it works (code walkthrough)](instructions/06-how-it-works.md) |
+| 07 | [Troubleshooting](instructions/07-troubleshooting.md) |
+| 08 | [Security & cookie hygiene](instructions/08-security-and-cookie-hygiene.md) |
+| 09 | [Recovery & maintenance](instructions/09-recovery-and-maintenance.md) |
+| 10 | [FAQ](instructions/10-faq.md) |
+| 11 | [Cheatsheet](instructions/11-cheatsheet.md) |
+| — | [Secrets template](instructions/secrets-template.md) |
+
+### Secrets at a glance
+
+| Secret | Required | Note |
+|---|---|---|
+| `YOUTUBE_API_KEY` | ✅ | YouTube Data API v3 |
+| `SPOTIFY_COOKIE` | ✅ | whole Netscape cookies.txt (needs `sp_dc`) |
+| `YOUTUBE_PLAYLIST` | ✅ (secret **or** variable) | source playlist URL |
+| `SPOTIFY_PLAYLIST` | ✅ (secret **or** variable) | destination playlist URL |
+| `TELEGRAM_BOT_TOKEN` | optional | full log |
+| `TELEGRAM_CHAT_ID` | optional | full log |
+| `REQUEST_DELAY_SECONDS` | optional variable | default 2 s |
+| `SPOTIFY_BATCH_SIZE` | optional variable | default 100 (1–100) |
+
+Secrets win over variables; both are read (`secrets.X || vars.X || placeholder`).

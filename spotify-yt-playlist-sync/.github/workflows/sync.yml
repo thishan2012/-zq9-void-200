@@ -57,13 +57,15 @@ jobs:
       - name: Sync playlists
         id: sync
         env:
-          YOUTUBE_PLAYLIST: ${{ vars.YOUTUBE_PLAYLIST || 'https://www.youtube.com/playlist?list=REPLACE_WITH_YOUR_YOUTUBE_PLAYLIST_ID' }}
-          SPOTIFY_PLAYLIST: ${{ vars.SPOTIFY_PLAYLIST || 'https://open.spotify.com/playlist/REPLACE_WITH_YOUR_SPOTIFY_PLAYLIST_ID' }}
+          # Secrets win over variables, so the links may live in either tab.
+          YOUTUBE_PLAYLIST: ${{ secrets.YOUTUBE_PLAYLIST || vars.YOUTUBE_PLAYLIST || 'https://www.youtube.com/playlist?list=REPLACE_WITH_YOUR_YOUTUBE_PLAYLIST_ID' }}
+          SPOTIFY_PLAYLIST: ${{ secrets.SPOTIFY_PLAYLIST || vars.SPOTIFY_PLAYLIST || 'https://open.spotify.com/playlist/REPLACE_WITH_YOUR_SPOTIFY_PLAYLIST_ID' }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || '2' }}
-          SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || '100' }}
+          # Optional tuning; also accepted from the Secrets tab by mistake.
+          REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
+          SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
