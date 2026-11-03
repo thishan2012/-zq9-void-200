@@ -24,6 +24,20 @@ Batch add එකකට කලින් code එක state එකේ මෙහෙ�
 2. තියෙනවා නම් → `data/sync-state.json` එකේ `pending` එක `null` කරලා, video ID → track ID `videos` එකට දාන්න (හෝ pending එක තියාගෙන run කරන්න — code එකම record කරයි)
 3. නෑ නම් → `pending` එක `null` කරලා ආයේ run කරන්න (එතකොට ආයේ try කරනවා)
 
+## 1b. Database එක බලන විදිය (add වුණු songs save වෙලාද?)
+
+Database එක = **`data/sync-state.json`**.
+
+| කොහෙන්ද | කොහොමද |
+|---|---|
+| GitHub run page | හැම run එකකම **Job summary** එකේ `🗄️ Database` table එක (playlist / saved songs / pending) |
+| Actions log | `INFO ADD <video> -> <track>` line එකක් හැම add එකකටම |
+| Telegram full log | `#1 ADD: …` + `Spotify: https://open.spotify.com/track/…` |
+| Local | `python -m syncer.app --db-summary` |
+| Raw file | `data/sync-state.json` → `playlists.<id>.videos` |
+
+⚠️ **Dry run එකේදී save වෙන්නේ නෑ** — `WOULD ADD` විතරයි. Save වෙන්නේ live run එකේදී විතරයි (bot commit එකෙන්).
+
 ## 2. එක සින්දුවක් ආයේ sync කරන්න
 
 `data/sync-state.json` එකේ `videos` එකෙන් ඒ video ID entry එක delete කරලා run කරන්න.

@@ -30,18 +30,25 @@ Project folder එක ඇතුළේ (`spotify-yt-playlist-sync/.github/workflo
 
 විස්තර: [12-dry-run.md](12-dry-run.md)
 
-## 3. Schedule
+## 3. Schedule — දවසට 6 පාර
 
 ```yaml
 on:
   schedule:
-    - cron: '0 0,12 * * *'      # 00:00 සහ 12:00 UTC
+    - cron: '0 */4 * * *'       # හැම 4 පැයකට (UTC)
 ```
 
 | UTC | Sri Lanka (UTC+5:30) |
 |---|---|
 | 00:00 | **05:30** |
+| 04:00 | **09:30** |
+| 08:00 | **13:30** |
 | 12:00 | **17:30** |
+| 16:00 | **21:30** |
+| 20:00 | **01:30** |
+
+Public repo නිසා Actions minutes **unlimited** → 6 runs × ~5–10 min ප්‍රශ්නයක් නෑ.
+Spotify searches අඩුයි: දැනට record වෙලා තියෙන සින්දු **search කරන්නේ නෑ**, ඒ නිසා අලුත් සින්දු නැති run එකක් තත්පර කීපයකින් ඉවර වෙනවා.
 
 - GitHub cron **UTC විතරයි** — ඔයාට ඕන වෙලාව UTC එකට convert කරලා ලියන්න
 - Scheduled runs **default branch එකෙන් විතරයි** → workflow + secrets + state එක default branch එකේ තියෙන්න ඕන
@@ -61,11 +68,24 @@ on:
 
 Dry run එකකදී (manual) step 6 **skip** වෙනවා — database එකට කිසිම වෙනසක් නෑ.
 
+## 4b. Database එක run page එකේ පේනවා
+
+හැම run එකකම **Job summary** එකේ `🗄️ Database (data/sync-state.json)` කොටසක් තියෙනවා:
+
+```
+| Playlist | Saved songs | Pending |
+|---|---|---|
+| `26ADR9K06DZ826IsgTno1S` | 187 | — |
+```
+
+`python -m syncer.app --db-summary` කියලා locally එකේත් බලන්න පුළුවන්.
+Database එකේ විස්තර: [09-recovery-and-maintenance.md](09-recovery-and-maintenance.md)
+
 ## 5. Timeout / minutes
 
 - Job timeout: **180 minutes** (`timeout-minutes: 180`)
 - 200 songs ≈ **5–10 min** (delay 2s + searches + 2 batch adds) → minutes ගැන බය වෙන්න ඕන නෑ
-- Free plan private repo: 2,000 min/month → දවසට 2 runs × ~8 min = ~480 min/month
+- Free plan private repo: 2,000 min/month → දවසට 6 runs × ~8 min = ~1,440 min/month (public repo නම් 0 cost)
 - Public repo: Actions minutes **unlimited** (free)
 
 කාලය අඩු කරන්න ඕන නම් `REQUEST_DELAY_SECONDS=1` (නමුත් rate limit අවදානම වැඩි) — හොඳම දේ default 2 තියාගන්න.

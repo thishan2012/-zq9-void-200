@@ -1,3 +1,5 @@
+import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -230,3 +232,47 @@ class DryRunSwitchTests(unittest.TestCase):
         message = self.client.telegram.call_args_list[0].args[2]
         self.assertIn('SYNC: SUCCESS', message)
         self.assertIn('Added: 0', message)
+
+
+class DatabaseSummaryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'state.json'
+
+    def test_summary_counts_saved_songs_and_pending(self):
+        self.path.write_text(json.dumps({'version': 1, 'playlists': {
+            'pl1': {'videos': {'v1': 't1', 'v2': 't2'}, 'pending': None},
+            'pl2': {'videos': {'v1': 't1'}, 'pending': {'items': [{'video': 'v9', 'track': 't9'}]}},
+        }}), encoding='utf-8')
+        text = app.db_summary(self.path)
+        self.assertIn('| `pl1` | **2** | — |', text)
+        self.assertIn('| `pl2` | **1** | 1 |', text)
+        self.assertIn('**Total saved songs: 3**', text)
+        self.assertEqual(app.db_stats(app.load_state(self.path)), [('pl1', 2, 0), ('pl2', 1, 1)])
+
+    def test_summary_handles_missing_and_empty_database(self):
+        self.assertIn('(empty)', app.db_summary(self.path))
+        self.path.write_text('{broken', encoding='utf-8')
+        self.assertIn('Could not read', app.db_summary(self.path))
+
+    def test_cli_prints_summary_and_exits(self):
+        import sys
+        self.path.write_text(json.dumps({'version': 1, 'playlists': {
+            'pl1': {'videos': {'v1': 't1'}, 'pending': None}}}), encoding='utf-8')
+        with patch.object(app, 'STATE_PATH', self.path), \
+             patch('sys.stdout', new_callable=io.StringIO) as out, \
+             patch.object(sys, 'argv', ['app', '--db-summary']):
+            self.assertEqual(app.main(), 0)
+        self.assertIn('| `pl1` | **1** | — |', out.getvalue())
+
+
+class ScheduleTests(unittest.TestCase):
+    def test_workflow_runs_six_times_a_day(self):
+        import yaml
+        root = Path(__file__).resolve().parents[2]
+        for workflow in (root / '.github' / 'workflows' / 'sync.yml',
+                         root / 'spotify-yt-playlist-sync' / '.github' / 'workflows' / 'sync.yml'):
+            data = yaml.safe_load(workflow.read_text(encoding='utf-8'))
+            cron = data[True]['schedule'][0]['cron']
+            self.assertEqual(cron, '0 */4 * * *', workflow)

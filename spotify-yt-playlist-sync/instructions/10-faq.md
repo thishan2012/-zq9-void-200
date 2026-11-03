@@ -18,6 +18,12 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 **Q. Spotify එකෙන් සින්දු delete කරනවද?**
 කවදාවත් නෑ. මේක one-way add-only sync එකක්. Playlist එකේ ඉඳන් අතින් මකලා තිබ්බත් ආයේ add වෙන්නේ නෑ (state එකේ record වෙලා නිසා) — ආයේ ඕන නම් state එකේ entry එක අයින් කරන්න.
 
+**Q. Add කරන songs save වෙනවද? DB එකක් තියේද?**
+ඔව් — `data/sync-state.json` (video ID → Spotify track ID). Live run එකක් ඉවර වෙද්දී bot එක ඒක commit කරනවා. ඒක තමයි "එකම සින්දුව ආයේ add නොවෙන්න" කියන එකේ ප්‍රධාන ආරක්ෂාව. බලන්න: Job summary එකේ `🗄️ Database` table, `python -m syncer.app --db-summary`, හෝ Telegram full log එකේ ADD lines.
+
+**Q. දවසට කී පාරක් දුවනවද?**
+`0 */4 * * *` = **දවසට 6** (හැම 4 පැයකට). Public repo නිසා minutes limit නෑ. Scheduled runs dry run — ඇත්තට ඕන නම් `SYNC_ENABLED=true`.
+
 **Q. 200 songs කී වෙලාවක් ගන්නවද?**
 Delay 2s + search ≈ 5–10 min. Job timeout 180 min. GitHub Actions minutes (private repo) ~8 min/run.
 
