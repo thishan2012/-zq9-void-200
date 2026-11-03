@@ -1,0 +1,1 @@
+Place your Spotify Netscape-format cookie export at `cookies/spotify.txt`. This project intentionally allows committing that file because the intended deployment is a private GitHub repository. See ../instructions/spotify.md for the risks and setup. Never commit cookies to a public repository.

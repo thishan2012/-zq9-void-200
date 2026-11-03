@@ -1,0 +1,61 @@
+name: Build extracted project from zip
+
+# The repository only ships spotify-yt-playlist-sync-project.zip. This workflow
+# extracts it into spotify-yt-playlist-sync/ and runs the unit tests, so the
+# extracted copy can always be reproduced from the archive without keeping a
+# second hand-maintained copy.
+#
+# The archive contains a real cookies/spotify.txt (a Spotify sp_dc session
+# cookie plus unrelated browser cookies). It is deliberately NOT extracted and
+# never uploaded: only cookies/README.md is kept from that directory.
+
+on:
+  push:
+    paths:
+      - 'spotify-yt-playlist-sync-project.zip'
+      - '.github/workflows/build-from-zip.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  extract-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract archive (without the cookie file)
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/extracted
+          mkdir -p /tmp/extracted
+          unzip -q spotify-yt-playlist-sync-project.zip -d /tmp/extracted
+          src=/tmp/extracted/spotify-yt-playlist-sync
+          test -f "$src/syncer/app.py"
+          rm -f "$src/cookies/spotify.txt"
+          rm -rf "$src"/.git
+          # Guard: no Netscape cookie file may survive the extraction.
+          if find "$src" -name '*.txt' -path '*/cookies/*' | grep -v 'cookies/README.md'; then
+            echo 'Refusing to continue: cookie file present in archive'; exit 1
+          fi
+          echo "Extracted $(find "$src" -type f | wc -l) files"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r /tmp/extracted/spotify-yt-playlist-sync/requirements.txt
+
+      - name: Run unit tests
+        working-directory: /tmp/extracted/spotify-yt-playlist-sync
+        run: python -m unittest discover -s tests -v
+
+      - name: Upload extracted sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotify-yt-playlist-sync-src
+          path: /tmp/extracted/spotify-yt-playlist-sync
+          if-no-files-found: error
