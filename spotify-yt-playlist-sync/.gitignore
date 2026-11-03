@@ -7,3 +7,5 @@ cookies/spotify.txt
 cookies/*.txt
 !cookies/README.md
 data/*.tmp
+secrets-template.local.md
+*.local.md

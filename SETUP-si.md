@@ -83,4 +83,8 @@ export YOUTUBE_API_KEY='…'
 
 හැම සින්දුවකම තීරණය log එකේ සහ Telegram full log එකේ තියෙනවා — `ADD`, `WOULD ADD`, `SKIP`, `FAIL` + reason + links.
 
-තව විස්තර: `spotify-yt-playlist-sync/README.md`, `instructions/*.md`.
+> **අලුත්:** සම්පූර්ණ A–Z guide එක `spotify-yt-playlist-sync/instructions/` එකේ.
+> එතනින් පටන් ගන්න 👉 [`instructions/README.md`](spotify-yt-playlist-sync/instructions/README.md)
+> Secrets හරියටම දාන විදිය + "To the one who knows the secrets" 👉 [`01-repository-secrets.md`](spotify-yt-playlist-sync/instructions/01-repository-secrets.md)
+
+තව විස්තර: `spotify-yt-playlist-sync/README.md`
