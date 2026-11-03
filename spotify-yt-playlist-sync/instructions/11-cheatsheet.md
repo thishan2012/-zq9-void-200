@@ -24,6 +24,7 @@ SPOTIFY_BATCH_SIZE    = 100    (1–100; tracks per add request)
 |---|---|
 | `REQUEST_DELAY_SECONDS` | `2` |
 | `SPOTIFY_BATCH_SIZE` | `100` |
+| `SYNC_ENABLED` | unset (scheduled runs stay dry) |
 | Schedule | `0 0,12 * * *` UTC = 05:30 / 17:30 SL |
 | Job timeout | 180 min |
 | Retries (reads) | 3, `Retry-After` respected |
@@ -44,8 +45,9 @@ SPOTIFY_BATCH_SIZE    = 100    (1–100; tracks per add request)
 # tests
 python -m unittest discover -s tests -v
 
-# dry run
+# dry run (either form)
 python -m syncer.app --dry-run
+DRY_RUN=true python -m syncer.app
 
 # real run
 python -m syncer.app
@@ -82,6 +84,14 @@ EOF
 | `STRICT` | artist + exact canonical title + version |
 | `LOOSE` | full title similarity ≥ 0.86 |
 | `DETAIL` | core title + word order + duration check |
+
+## Dry run
+
+| කොහෙන්ද | කොහොමද |
+|---|---|
+| Actions | Run workflow → `dry_run` ✅ (default) |
+| Schedule | `SYNC_ENABLED` unset = dry run; `true` = live |
+| Local | `--dry-run` හෝ `DRY_RUN=true` |
 
 ## ඉක්මන් ලින්ක්
 

@@ -1005,9 +1005,16 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
 
 def main():
     parser = argparse.ArgumentParser(description='Experimental one-way YouTube to Spotify sync')
-    parser.add_argument('--dry-run', action='store_true', help='preview without writing to Spotify or the database')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='preview only: read YouTube and Spotify, search, but write nothing '
+                             '(no Spotify change, no database change). Also enabled by DRY_RUN=true.')
     args = parser.parse_args()
+    # The workflow sets DRY_RUN, so the same switch works locally and in Actions.
+    if os.environ.get('DRY_RUN', '').strip().lower() == 'true':
+        args.dry_run = True
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+    if args.dry_run:
+        LOG.info('DRY RUN: nothing will be written to Spotify and the database will not change')
     counts = {'add': 0, 'skip': 0, 'fail': 0}
     issues = []
     result = 'SUCCESS'

@@ -16,11 +16,13 @@
 | [`09-recovery-and-maintenance.md`](09-recovery-and-maintenance.md) | pending state, cookie expire, re-run, backup | පස්සේ |
 | [`10-faq.md`](10-faq.md) | "එකම සින්දුව ආයේ add වුණොත්?", batch size, logs… | ඕන වෙලාවක |
 | [`11-cheatsheet.md`](11-cheatsheet.md) | එක පිටුවේ සියලු commands/vars | print කරලා තියාගන්න |
+| [`12-dry-run.md`](12-dry-run.md) | **Dry run** — checkbox, env var, schedule switch, report කියවන විදිය | **පළමු run එකට කලින්** |
 | [`secrets-template.md`](secrets-template.md) | ඔයාගේ secrets එකතුවක් ලියලා තියාගන්න template | copy/paste |
 
 ## ඉක්මන් ලින්ක්
 
 - ප්‍රථම run එක: [`00-QUICKSTART.md`](00-QUICKSTART.md)
+- Dry run (මොකුත් වෙනස් නොකර preview): [`12-dry-run.md`](12-dry-run.md)
 - Secrets table: [`01-repository-secrets.md`](01-repository-secrets.md)
 - මොකක් හරි කැඩුණොත්: [`07-troubleshooting.md`](07-troubleshooting.md)
 - Cookie එක leak වුණා නම්: [`08-security-and-cookie-hygiene.md`](08-security-and-cookie-hygiene.md)

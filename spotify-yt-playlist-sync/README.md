@@ -51,6 +51,7 @@ Go to **Settings → Secrets and variables → Actions** in *your private fork/c
 | `SPOTIFY_PLAYLIST` | placeholder URL in `sync.yml` | destination playlist URL or ID |
 | `REQUEST_DELAY_SECONDS` | `2` | delay before **every** request (0–60). Keep 1–2 for 200-song playlists. |
 | `SPOTIFY_BATCH_SIZE` | `100` | tracks per add request (1–100). Lower it if Spotify starts rejecting. |
+| `SYNC_ENABLED` | *(unset)* | `true` lets **scheduled** runs write. Unset = scheduled runs stay dry runs. |
 
 > ⚠️ **`SPOTIFY_COOKIE` is an account credential, not an API key.** Anyone who can read it can act as
 > that account. Use a disposable account, never commit the cookie file, and if it ever leaks,
@@ -80,7 +81,10 @@ spotify:playlist:26ADR9K06DZ826IsgTno1S
 3. Schedule is `0 0,12 * * *` (UTC). GitHub cron is UTC only and can be delayed by many minutes.
    Change the cron line if you want another time.
 4. Manual run: **Actions → YouTube to Spotify sync → Run workflow**, keep **dry_run** checked the first
-   time, then uncheck it.
+   time (it is the default), then uncheck it for the real sync. Full detail:
+   [instructions/12-dry-run.md](instructions/12-dry-run.md).
+5. **Scheduled runs are dry runs by default.** Set the repository variable `SYNC_ENABLED=true` when you
+   want the twice-daily schedule to actually add tracks.
 
 For a 200-song playlist expect roughly 5–10 minutes of wall clock (mostly the request delay and the
 matching searches), well inside the 180-minute job timeout.
@@ -121,6 +125,7 @@ matching searches), well inside the 180-minute job timeout.
 
 ```bash
 python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# dry run: --dry-run flag or DRY_RUN=true
 export YOUTUBE_PLAYLIST='https://www.youtube.com/playlist?list=PL…'
 export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
 export YOUTUBE_API_KEY='…'
@@ -176,6 +181,7 @@ cookies/README.md            why the cookie file is not in Git
 | 09 | [Recovery & maintenance](instructions/09-recovery-and-maintenance.md) |
 | 10 | [FAQ](instructions/10-faq.md) |
 | 11 | [Cheatsheet](instructions/11-cheatsheet.md) |
+| 12 | [Dry run (checkbox, env var, schedule switch)](instructions/12-dry-run.md) |
 | — | [Secrets template](instructions/secrets-template.md) |
 
 ### Secrets at a glance

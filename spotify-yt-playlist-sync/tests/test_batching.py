@@ -185,3 +185,48 @@ class RateLimitTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DryRunSwitchTests(unittest.TestCase):
+    """DRY_RUN=true must behave exactly like --dry-run (used by the workflow)."""
+
+    def setUp(self):
+        import os
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'state.json'
+        self.patch = patch.object(app, 'STATE_PATH', self.path)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.client = Mock()
+        self.client.youtube.return_value = [{'id': 'AAAAAAAAAAA', 'title': 'Artist - No Match', 'channel': 'U'}]
+        self.client.existing_tracks.return_value = set()
+        self.client.search.return_value = []
+        self.env = {'YOUTUBE_PLAYLIST': 'playlist', 'SPOTIFY_PLAYLIST': 'a' * 22, 'YOUTUBE_API_KEY': 'key'}
+
+    def run_main(self, extra_env, argv):
+        import sys
+        with patch.object(app, 'Client', return_value=self.client), \
+             patch.object(app, 'sp_dc_from_file', return_value='cookie'), \
+             patch.object(app, 'load_state', return_value={'version': 1, 'playlists': {}}), \
+             patch.object(app, 'load_overrides', return_value={}), \
+             patch.dict('os.environ', dict(self.env, **extra_env), clear=True), \
+             patch.object(sys, 'argv', argv):
+            return app.main()
+
+    def test_env_var_enables_dry_run_without_flag(self):
+        with self.assertLogs('sync', level='INFO') as logs:
+            self.assertEqual(self.run_main({'DRY_RUN': 'true'}, ['app']), 0)
+        self.assertTrue(any('DRY RUN: nothing will be written' in line for line in logs.output))
+        message = self.client.telegram.call_args_list[0].args[2]
+        self.assertIn('DRY RUN', message)
+        self.assertIn('Would add: 0', message)
+        self.assertFalse(self.path.exists())
+
+    def test_without_the_switch_the_run_is_live(self):
+        with self.assertLogs('sync', level='INFO') as logs:
+            self.assertEqual(self.run_main({}, ['app']), 0)
+        self.assertFalse(any('nothing will be written' in line for line in logs.output))
+        message = self.client.telegram.call_args_list[0].args[2]
+        self.assertIn('SYNC: SUCCESS', message)
+        self.assertIn('Added: 0', message)
