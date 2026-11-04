@@ -119,6 +119,8 @@ class TelegramReportingTests(unittest.TestCase):
     def test_main_delivers_issues_and_summary(self):
         client = Mock()
         client.youtube.return_value = [{'id': 'BBBBBBBBBBB', 'title': 'Artist - No Match', 'channel': 'Uploader'}]
+        client.youtube_playlist.return_value = {'id': 'playlist', 'title': 'Viral Phonk', 'channel': 'Uploader',
+                                                'url': 'https://www.youtube.com/playlist?list=playlist'}
         client.existing_tracks.return_value = set()
         client.search.return_value = []
         env = {'YOUTUBE_PLAYLIST': 'playlist', 'SPOTIFY_PLAYLIST': 'a' * 22, 'YOUTUBE_API_KEY': 'key',
@@ -131,6 +133,8 @@ class TelegramReportingTests(unittest.TestCase):
         # One call carries the whole report; the fake returns a Mock (truthy).
         report = '\n\n'.join(client.telegram_many.call_args.args[2])
         self.assertIn('Would add: 0 | Skipped: 1 | Failed: 0', report)
+        # The playlist name and link open the report, so a run is identifiable at a glance.
+        self.assertTrue(report.startswith('Playlist: Viral Phonk\nhttps://www.youtube.com/playlist?list=playlist'))
         self.assertIn('SKIP: Artist - No Match', report)
         self.assertIn('Spotify log (DRY RUN)', report)
 

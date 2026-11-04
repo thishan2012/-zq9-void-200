@@ -134,7 +134,7 @@ export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
 export YOUTUBE_API_KEY='…'
 # optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SPOTIFY_BATCH_SIZE
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
-.venv/bin/python -m unittest discover -s tests -v   # 92 tests
+.venv/bin/python -m unittest discover -s tests -v   # 96 tests
 ```
 
 The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
@@ -143,9 +143,10 @@ The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). I
 
 ## 6. Telegram output
 
-Two kinds of messages per run:
+Two kinds of messages per run, both starting with the **YouTube playlist name and link** (the Spotify
+playlist has the same name, so one name is enough — it comes from `playlists.list?part=snippet`):
 
-1. **Summary** — result, counts, and per-song details for `SKIP` / `FAIL` only.
+1. **Summary** — playlist name + link, result, counts, and the skip reasons.
 2. **Per-song log** — one line per song that needs attention (`ADD` / `WOULD ADD` / `SKIP` / `FAIL`, with
    YouTube link, match method, Spotify link and reason). Songs that are **already synced, already in the
    playlist or duplicated are saved to the database only**: not counted as skips, not shown anywhere, no
