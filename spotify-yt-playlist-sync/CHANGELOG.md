@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-11-04 (description credits + featured names)
+
+### The artist credit in the description is used now
+
+Distributor uploads ("Provided to YouTube by …") put the artist in the description, never in the title:
+`FUNK TONTO (feat. Mc Ombrinho) [Slowed]` on `Raiden - Topic`. The parser read `Raiden` as the artist, so
+the real track was refused. Now:
+
+* the `Song · Artist · Artist` line of the description is read when its song part is the start of the video
+  title (`FUNK TONTO` + `(feat. …) [Slowed]`), and the video title is kept as the song, so the version words
+  and the `feat.` credit are still there;
+* `artist ok` accepts the description's artists when the title credits nobody - so a description upload can
+  match a `STRICT` search, which is what makes the *first* method work for these channels;
+* a description line about a **different** song is still ignored, and a wrong artist in the description is
+  still refused.
+
+### A featured credit is not part of the song title
+
+`FUNK TONTO (feat. Mc Ombrinho) [Slowed]` and Spotify's `FUNK TONTO` (featured name credited separately) or
+`FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` are the same song. `name_matches`/`same_song_title` now drop the
+`(feat. …)` / bare `feat. …` block (keeping the version words, so a mixed edit is still refused).
+
+`MATCHER_VERSION` is now **7**. Tests: **154**.
+
 ## 2026-11-04 ("Release - Topic" pages and the slowed ladder)
 
 ### A "… - Topic" page is never the song

@@ -64,6 +64,14 @@ def best(candidates, score, floor):
     return ranked[0][1]
 
 
+def description_artists(step):
+    """Artist names the video description states ("Provided to YouTube by …")."""
+    found = app.description_credit(step.video.get('title', ''), step.video.get('description', ''))
+    if not found:
+        return set()
+    return {app.normalized(name) for name in app.artist_candidates(found[0])} - {''}
+
+
 def known_artists(step):
     """Artists the *title* credits. A name that only the channel gave us does
     not count: it would turn "uploaded by A, made by B" into a false conflict."""
@@ -81,15 +89,54 @@ def artist_ok(step, track):
     carry a credit at all).
     """
     known = known_artists(step)
-    return not known or bool(known & track_artists(track))
+    if known and known & track_artists(track):
+        return True
+    if known:
+        return False
+    # The title carries no credit: the distributor's description may, and that
+    # is then the only artist proof there is ("Provided to YouTube by …").
+    stated = description_artists(step)
+    return not stated or bool(stated & track_artists(track))
 
-def name_matches(expected, track, floor=.93):
-    """Title equality that survives accents, case and punctuation."""
-    left = app.ascii_fold(app.normalized(expected))
-    right = app.ascii_fold(track_title(track))
+# "(feat. Mc Ombrinho)" / "[ft. X]": a credit, not part of the song's name.
+# Case-sensitive on purpose: the \b keeps the "feat" of "featuring" from ending
+# the match early, and both the bracket and the bare form are handled.
+FEAT_BLOCK = re.compile(r'[\[(]\s*(?:feat(?:\.|uring)|ft)\.?\s+[^)\]]*[)\]]')
+# A bare credit has no closing bracket ("FUNK TONTO feat. MC OMBRINHO Slowed"), so
+# it ends at the next version word instead of eating the rest of the title.
+FEAT_BARE = re.compile(r'\b(?:feat|ft)\.?\s+', re.I)
+# Version words that survive a bare credit ("Song feat. X Slowed" -> "Song Slowed").
+FEAT_TAIL_KEEP = {'slowed', 'super', 'ultra', 'over', 'extra', 'sped', 'speed', 'up', 'reverb',
+                  'nightcore', 'remix', 'extended', 'instrumental', '8d'}
+
+
+def without_feat(text):
+    """Drop featured-artist credits: they belong to the artist field on Spotify.
+
+    "FUNK TONTO (feat. Mc Ombrinho) [Slowed]" and Spotify's "FUNK TONTO" (the
+    featured name credited separately) are the same song.
+    """
+    out = FEAT_BLOCK.sub(' ', text)
+    bare = FEAT_BARE.search(out)
+    if bare:
+        # No closing bracket to stop at: keep the version words, drop the credit.
+        tail = [word for word in out[bare.end():].split() if word.casefold().strip('.,') in FEAT_TAIL_KEEP]
+        out = f'{out[:bare.start()]} {" ".join(tail)}'
+    return ' '.join(out.split())
+
+
+def text_matches(expected, candidate, floor=.93):
+    """Compare two titles: accents, case, punctuation and feat. credits ignored."""
+    left = app.ascii_fold(app.normalized(without_feat(expected)))
+    right = app.ascii_fold(without_feat(candidate))
     if not left or not right:
         return False
     return left == right or SequenceMatcher(None, left, right).ratio() >= floor
+
+
+def name_matches(expected, track, floor=.93):
+    """Title equality that survives accents, case and punctuation."""
+    return text_matches(expected, track_title(track), floor)
 
 
 def strip_version_words(text):
@@ -127,8 +174,8 @@ def same_song_title(step, track, floor=.80):
     This is the check that stops "first search result" from adding a different
     song that merely shares a word.
     """
-    left = app.ascii_fold(app.canonical_track_title(app.strip_marketing(step.version_text)))
-    right = app.ascii_fold(track_title(track))
+    left = app.ascii_fold(without_feat(app.canonical_track_title(app.strip_marketing(step.version_text))))
+    right = app.ascii_fold(without_feat(track_title(track)))
     if not left or not right:
         return False
     video_words = set(left.split())
@@ -574,8 +621,7 @@ class PartSuffixStep(Step):
             # The version words were checked against name + album above, so the
             # name comparison here ignores them (canonical keeps version words).
             plain = app.search_core(base) if app.search_core(base) else app.normalized(base)
-            candidate = {'name': stripped, 'artists': track.get('artists', [])}
-            if (name_matches(plain, candidate, floor=.92)
+            if (text_matches(plain, stripped, floor=.92)
                     or app.ascii_fold(strip_version_words(stripped)) == app.ascii_fold(
                         app.canonical_track_title(app.search_core(base)))) \
                     and artist_ok(self, track):

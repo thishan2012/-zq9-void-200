@@ -38,8 +38,8 @@ class Catalog:
         return len(self.queries)
 
 
-def video(title, channel='Uploader'):
-    return {'id': 'VIDEOID0001', 'title': title, 'channel': channel, 'description': ''}
+def video(title, channel='Uploader', description=''):
+    return {'id': 'VIDEOID0001', 'title': title, 'channel': channel, 'description': description}
 
 
 class StepTestCase(unittest.TestCase):
@@ -201,6 +201,65 @@ class BrokenCreditStepTests(StepTestCase):
         video_item = video('DJ X - MONTAGEM DA NOITE INTEIRA', channel='DJ X')
         catalog = Catalog([track('t1', 'MONTAGEM DA NOITE INTEIRA', 'DJ X')])
         found, _ = self.run_step(search_steps.BrokenCreditStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
+class FeaturedNameTests(unittest.TestCase):
+    """The featured credit inside a title is not part of the song's name."""
+
+    def test_a_feat_block_does_not_stop_the_title_match(self):
+        self.assertTrue(search_steps.name_matches(
+            'FUNK TONTO (feat. Mc Ombrinho) [Slowed]',
+            {'name': 'FUNK TONTO - Slowed', 'artists': [{'name': 'Mc Ombrinho'}]}))
+
+    def test_version_words_survive_a_bare_feat_credit(self):
+        self.assertEqual(app.version_signature(search_steps.without_feat(
+            'FUNK TONTO feat. MC OMBRINHO Slowed')), {'slowed'})
+
+    def test_the_song_on_a_slowed_album_is_found(self):
+        video_item = video('FUNK TONTO (feat. Mc Ombrinho) [Slowed]', channel='Raiden - Topic',
+                           description='Provided to YouTube by X\n\nFUNK TONTO · MC Ombrinho')
+        catalog = Catalog([dict(track('t1', 'FUNK TONTO', 'MC Ombrinho'), album='FUNK TONTO (Slowed)')])
+        found, code = search_steps.search_more(catalog, video_item, app.metadata(video_item), 'token', {})
+        self.assertEqual((found['id'], code), ('t1', 'PART'))
+
+
+class DescriptionCreditTests(unittest.TestCase):
+    """Distributor pages state the artist in the description, not in the title."""
+
+    TONTO = 'Provided to YouTube by DistroKid\n\nFUNK TONTO · MC Ombrinho\n\n℗ 2026'
+
+    def test_the_song_line_of_the_description_gives_the_artist(self):
+        parsed = app.metadata(video('FUNK TONTO (feat. Mc Ombrinho) [Slowed]', channel='Raiden - Topic',
+                                    description=self.TONTO))
+        self.assertEqual(parsed, ('MC Ombrinho', 'FUNK TONTO (feat. Mc Ombrinho) [Slowed]'))
+
+    def test_the_version_words_stay_part_of_the_song(self):
+        _, song = app.metadata(video('MONTAGEM GALACTO LOCONA (Ultra Slowed)', channel='Release - Topic',
+                                     description='Provided to YouTube by X\n\nMONTAGEM GALACTO LOCONA · DJ NEO'))
+        self.assertEqual(app.version_signature(song), {'ultra-slowed', 'slowed'})
+
+    def test_a_description_about_another_song_is_ignored(self):
+        parsed = app.metadata(video('MONTAGEM GALACTO LOCONA (Ultra Slowed)', channel='Release - Topic',
+                                    description='Provided to YouTube by X\n\nMONTAGEM ECLIPSE · DJ NEO'))
+        self.assertIsNone(parsed)
+
+    def test_the_description_artist_decides_the_match(self):
+        video_item = video('FUNK TONTO (feat. Mc Ombrinho) [Slowed]', channel='Raiden - Topic',
+                           description=self.TONTO)
+        catalog = Catalog([dict(track('t1', 'FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)', 'Mc Ombrinho'),
+                                album='FUNK TONTO (Slowed)')])
+        parsed = app.metadata(video_item)
+        found, code = search_steps.search_more(catalog, video_item, parsed, 'token', {})
+        self.assertEqual((found['id'], code), ('t1', 'PART'))
+
+    def test_a_wrong_artist_in_the_description_is_refused(self):
+        video_item = video('FUNK TONTO (feat. Mc Ombrinho) [Slowed]', channel='Raiden - Topic',
+                           description=self.TONTO)
+        catalog = Catalog([dict(track('t1', 'FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)', 'Somebody Else'),
+                                album='FUNK TONTO (Slowed)')])
+        parsed = app.metadata(video_item)
+        found, _ = search_steps.search_more(catalog, video_item, parsed, 'token', {})
         self.assertIsNone(found)
 
 
