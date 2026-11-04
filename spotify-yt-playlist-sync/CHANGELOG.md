@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-11-04 (`ISRC` step: exact recording identity)
+
+The description parser already read `ISRC: …`; it is now **used**:
+
+* **`ISRC` (new step 23)** - when the description states an ISRC, the candidate queries are turned into
+  track **IDs** (cheap, no metadata), each ID is read once, and the track whose `external_ids.isrc` equals
+  it wins. An ISRC identifies the *recording*, so no title, version or artist check is needed.
+* Limits kept: at most 8 candidates per query, one query is enough when it works, and a query whose
+  candidates carry no ISRC at all is abandoned instead of being retried - no bursts.
+* The full track lookup keeps `isrc`, and `search_ids()` was added so the step can look at candidates
+  without paying for metadata it will not use.
+
+Deliberately **not** done: downloading audio and comparing fingerprints. It needs a large dependency,
+minutes of CPU per song and extra hosting, and it answers the same "is this the right recording" question
+that the ISRC answers exactly - whenever the upload states one. The relaxed steps (`DURVER`, `TITLEONLY`,
+`DESCTEXT`) still refuse when the evidence is thin.
+
+Chain is **29** steps, `TOPRESULT` last. `MATCHER_VERSION` is now **13**. Tests: **228**.
+
 ## 2026-11-04 (`--stats`: which step earns its place)
 
 Every run now tallies the method that found each song in the playlist database (`matched`), and

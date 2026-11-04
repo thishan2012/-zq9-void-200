@@ -926,6 +926,64 @@ class LooseDescriptionStep(Step):
         return one_of(keep)
 
 
+class IsrcStep(Step):
+    code = 'ISRC'
+    title = 'The description states an ISRC: the Spotify candidate with that exact ISRC wins'
+
+    # An ISRC identifies a *recording*, so this is the strongest evidence short
+    # of audio comparison - and it never needs the title or the artist at all.
+    def applies(self):
+        return bool(app.description_isrc(self.video.get('description') or ''))
+
+    def song_hint(self):
+        stated = app.description_song(self.video.get('description') or '')
+        return stated[0] if stated and stated[0] else ''
+
+    def queries(self):
+        stated = app.description_song(self.video.get('description') or '')
+        song = self.song_hint()
+        found = [song] if song else []
+        names = list(stated[1] if stated else []) + \
+            app.description_producers(self.video.get('description') or '') + \
+            [name for name in app.channel_names(self.parsed, self.video)
+             if not app.is_generic_name(name)]
+        if song:
+            found += [f'{name} {song}' for name in names]
+        else:
+            found += names
+        found.append(self.version_text.strip())
+        return list(dict.fromkeys(query.strip() for query in found if query and query.strip()))
+
+    def run(self, client, token):
+        isrc = app.description_isrc(self.video.get('description') or '')
+        lookup = getattr(client, 'spotify_track', None)
+        ids = getattr(client, 'search_ids', None)
+        if not isrc or not callable(lookup) or not callable(ids):
+            return None
+        keep = []
+        for query in self.queries():
+            any_isrc = False
+            for track_id in ids(query, token)[:8]:
+                try:
+                    found = lookup(track_id, token)
+                except app.SyncError:
+                    continue
+                if not isinstance(found, dict) or not found.get('name'):
+                    continue
+                found_isrc = str(found.get('isrc') or '').strip().upper()
+                if not found_isrc:
+                    continue
+                any_isrc = True
+                if found_isrc == isrc:
+                    keep.append(found)
+            if keep or not any_isrc:
+                # A candidate carried no ISRC at all: try the next query rather
+                # than spending more reads on the same one.
+                if keep:
+                    break
+        return one_of(keep)
+
+
 class TopResultStep(Step):
     code = 'TOPRESULT'
     title = 'Last resort: the first Spotify result, only when the title and version really match'
@@ -1060,12 +1118,13 @@ STEPS = (
     SuffixArtistStep,        # 20
     TimedTitleStep,          # 21
     SongTagStep,             # 22
-    LooseDescriptionStep,    # 23  (a bare description line, stricter floor)
-    BrokenCreditStep,        # 24
-    AlbumAwareStep,          # 25
-    PartSuffixStep,          # 26
-    PopularRankStep,         # 27
-    TopResultStep,           # 28  (always last: the least certain step)
+    IsrcStep,                # 23  (an ISRC is exact: it wins over any title)
+    LooseDescriptionStep,    # 24  (a bare description line, stricter floor)
+    BrokenCreditStep,        # 25
+    AlbumAwareStep,          # 26
+    PartSuffixStep,          # 27
+    PopularRankStep,         # 28
+    TopResultStep,           # 29  (always last: the least certain step)
 )
 
 
