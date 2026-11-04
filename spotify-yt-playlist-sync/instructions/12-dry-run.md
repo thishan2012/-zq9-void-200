@@ -157,5 +157,5 @@ Live run එකකින් පස්සේ `Saved songs` වැඩි වෙන
 ```text
 පළමුව  : Run workflow + dry_run ✅   → full log බලන්න
 හරි නම් : Run workflow + dry_run ☐    → tracks add වෙනවා + DB commit
-ඊට පස්සේ: SYNC_ENABLED=true (variable) → දවසට 6ක් auto (හැම 4 පැයකට)
+ඊට පස්සේ: SYNC_ENABLED=true (variable) → දවසට 4ක් auto (හැම 6 පැයකට)
 ```

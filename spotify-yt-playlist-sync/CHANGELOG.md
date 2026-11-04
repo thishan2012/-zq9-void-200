@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-04 (four runs a day)
+
+The schedule is now `0 */6 * * *` - **four runs a day**, every 6 hours (00/06/12/18 UTC =
+05:30/11:30/17:30/23:30 Sri Lanka) instead of six every 4 hours. Fewer runs mean fewer Spotify
+searches, and a backlog is collected by the next run anyway.
+
 ## 2026-11-04 (the schedule keeps itself alive)
 
 GitHub switches a public repository's scheduled workflows off after **60 days without repository
@@ -8,8 +14,8 @@ of this repository, so a quiet month produces no commit at all and the clock wou
 
 * The "Save sync database" step now leaves **one empty commit on the 1st of each month** when a live
   run changed nothing (`Keep the schedule alive (monthly heartbeat)`). Dry runs never do it, and it is at
-  most one per month: the six runs of that day see it in the log and stay quiet.
-* Six runs a day is unchanged (`0 */4 * * *`).
+  most one per month: the four runs of that day see it in the log and stay quiet.
+* Four runs a day, every 6 hours (`0 */6 * * *`) - was six, every 4 hours.
 
 ## 2026-11-04 (the commit name really shows now)
 
