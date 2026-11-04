@@ -136,13 +136,19 @@ export YOUTUBE_API_KEY='…'
 # optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SEARCH_PAUSE_SECONDS, SPOTIFY_BATCH_SIZE
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
 .venv/bin/python -m syncer.app --explain     # why were the skipped songs skipped? (read-only)
-.venv/bin/python -m unittest discover -s tests -v   # 199 tests
+.venv/bin/python -m syncer.app --forget-video aLZNbOUOyI4   # search that skipped song again
+.venv/bin/python -m syncer.app --forget-skipped             # search every remembered skip again
+.venv/bin/python -m unittest discover -s tests -v   # 209 tests
 ```
 
 `--explain` searches every remembered skip once more and prints, per song, what `STRICT`/`LOOSE` and each
 extra step returned plus a verdict (`MATCH PART` = the song is on Spotify and step `PART` finds it now;
 `still no match` = nothing on Spotify fits). Nothing is added and the database is not written; see
 [instructions/13-search-steps.md](instructions/13-search-steps.md) §2d.
+
+`--forget-video <id>` / `--forget-skipped` are the way back for a remembered skip: the track came back to
+Spotify, a private video turned public, or a rule was fixed. The entry is removed from
+`data/sync-state.json`, so the next run searches that song again and may report it once more.
 
 The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
 
@@ -187,7 +193,7 @@ syncer/app.py                all logic (YouTube, Spotify transport, matching, ba
 data/sync-state.json         database: per playlist {videos, pending}
 data/track-overrides.json    manual YouTube → Spotify mappings
 instructions/00…11-*.md      A–Z guides (start at instructions/README.md)
-tests/                       199 unit tests (matching, transport, batching, rate limits, reporting)
+tests/                       209 unit tests (matching, transport, batching, rate limits, reporting)
 cookies/README.md            why the cookie file is not in Git
 ```
 

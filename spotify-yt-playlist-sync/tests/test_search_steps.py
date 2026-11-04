@@ -424,6 +424,32 @@ class SongTagStepTests(StepTestCase):
         self.assertFalse(search_steps.SongTagStep(video_item, app.metadata(video_item), {}).applies())
 
 
+class RepeatedNameTests(unittest.TestCase):
+    """A YouTube title that repeats the song name is not a different edit."""
+
+    def test_the_repeated_name_does_not_block_the_plain_track(self):
+        self.assertTrue(app.versions_agree('MONTAGEM MIAU (MONTAGEM MIAU)', 'MONTAGEM MIAU'))
+
+    def test_a_real_version_is_still_a_different_recording(self):
+        self.assertFalse(app.versions_agree('MONTAGEM MIAU (Slowed)', 'MONTAGEM MIAU'))
+
+    def test_the_parse_drops_the_repeated_name(self):
+        parsed = app.metadata(video('MONTAGEM MIAU (MONTAGEM MIAU)', channel='DJ NEO'))
+        self.assertEqual(parsed, ('DJ NEO', 'MONTAGEM MIAU'))
+
+    def test_a_single_name_is_left_alone(self):
+        self.assertEqual(app.unduplicate('MONTAGEM MIAU'), 'MONTAGEM MIAU')
+        self.assertEqual(app.unduplicate('Song (Slowed)'), 'Song (Slowed)')
+
+    def test_the_step_chain_takes_the_plain_track(self):
+        video_item = video('MONTAGEM MIAU (MONTAGEM MIAU)', channel='DJ NEO')
+        parsed = app.metadata(video_item)
+        found, code = search_steps.search_more(
+            Catalog([track('t1', 'MONTAGEM MIAU', 'DJ NEO')]), video_item, parsed, 'token', {})
+        self.assertEqual(found['id'], 't1')
+        self.assertIsNotNone(code)
+
+
 class ManualPickLinkTests(unittest.TestCase):
     def test_a_skipped_song_gets_a_search_link_and_an_override_key(self):
         link = app.search_link({'title': 'DESTELLO - HDN | VIRAL PHONK', 'video_id': 'aLZNbOUOyI4'})

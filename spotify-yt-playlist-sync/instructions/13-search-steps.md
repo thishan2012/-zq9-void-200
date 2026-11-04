@@ -130,6 +130,28 @@ Uploader කෙනෙක් description එකේ Spotify link එකම දා�
 ඊට පස්සේ `song + artist` search කරලා, නම **0.90** ට වඩා ගැලපුණොත් + version + artist check ගැලපුණොත් විතරයි add වෙන්නේ.
 ඒ නිසා වෙන සින්දුවක් (එක වචනයක් බෙදාගෙන ආවත්) add වෙන්නේ නෑ.
 
+## 2b1c. Skip වුණ සින්දුවක් ආයේ try කරන්න (`--forget-video`)
+
+Skip එකක් `data/sync-state.json` එකේ **සදහටම** මතක තියෙනවා (ඒකයි 200 songs run එකක් හැම පාරම එකම දේ
+report නොකරන්නේ). ඒත් මේ අවස්ථා 3කදී ආයේ බලන්න ඕන:
+
+| අවස්ථාව | කරන්නේ |
+|---|---|
+| Track එක Spotify එකට **ආයේ ආවා** (copyright අයින් වුණා) | `--forget-skipped` (හෝ `--forget-video <id>`) |
+| වීඩියෝ එක **private → public** වුණා | කරන්න දෙයක් නෑ — title එක වෙනස් වුණාම තනියෙන්ම ආයේ search වෙනවා |
+| Matching rule එකක් හදලා `MATCHER_VERSION` bump කළා | තනියෙන්ම එක පාරක් try වෙනවා, ඒත් **report වෙන්නේ නෑ** (count විතරයි) |
+
+```bash
+.venv/bin/python -m syncer.app --forget-video aLZNbOUOyI4   # එක සින්දුවක්
+.venv/bin/python -m syncer.app --forget-skipped             # okkoma
+```
+
+ඊළඟ run එකේදී ඒ සින්දුව ආයේ search වෙනවා; හම්බුණොත් add වෙනවා, නැත්තං ආයේ එක පාරක් report වෙනවා.
+
+**DESTELLO / LOUCARA වගේ ඒවා:** Spotify එකේ track එක **නැති** නම් (remove වුණා) හෝ වීඩියෝ එක
+**private** නම්, `--forget-skipped` කරත් හැම run එකකම "Not found" එක එන්න පුළුවන්. ඒ නිසා:
+track එක Spotify එකට ආයේ ආව දාට විතරක් `--forget-video` කරන්න.
+
 ## 2b1a. Rate limit — search ගණන පාලනය
 
 Steps 27ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:

@@ -190,11 +190,76 @@ class RememberedTests(unittest.TestCase):
         self.assertEqual(buf.getvalue().strip(),
                          'Viral Phonk — https://www.youtube.com/playlist?list=PLabc123')
 
+    def test_a_rule_change_retries_the_skip_but_reports_it_only_once(self):
+        _, first, _ = self.run_sync([NO_MATCH])
+        self.assertEqual(len(first), 1)
+        # A new matcher version gives the remembered skip one more try.
+        self.state['matcher'] = app.MATCHER_VERSION - 1
+        counts, issues, client = self.run_sync([NO_MATCH])
+        self.assertEqual(counts['skip'], 1)          # counted, so the total adds up
+        # Counted (so the total adds up) but flagged quiet: it never reaches the
+        # Telegram report, and the pick link is not offered again either.
+        self.assertEqual([event['quiet'] for event in issues], [True])
+        report = app.summary_message('Would add: 0 | Skipped: 1 | Failed: 0', issues)
+        self.assertNotIn('No Match', report)
+        self.assertNotIn('open.spotify.com/search', report)
+        self.assertTrue(client.searches)             # it really was searched again
+        self.assertEqual(self.state['playlists']['playlist']['skipped']['BBBBBBBBBBB']['retried'],
+                         app.MATCHER_VERSION)
+        # The run after that is silent again, with no search spent.
+        client = Client()
+        counts, issues, _ = self.run_sync([NO_MATCH], client=client)
+        self.assertEqual((counts, issues, client.searches), ({'add': 0, 'skip': 0, 'fail': 0}, [], []))
+
+    def test_a_video_that_became_readable_is_searched_again(self):
+        # A private video was remembered under its placeholder title.
+        self.run_sync([{'id': 'DDDDDDDDDDD', 'title': 'Private video'}])
+        self.assertIn('DDDDDDDDDDD', self.state['playlists']['playlist']['skipped'])
+        # Later it is public and carries a real title: the remembered skip must
+        # not hide it any more.
+        client = Client()
+        counts, issues, _ = self.run_sync([{'id': 'DDDDDDDDDDD', 'title': 'Artist - Good Song',
+                                            'channel': 'U'}], client=client)
+        self.assertEqual(counts['add'], 1)
+        self.assertEqual([event['status'] for event in issues], ['WOULD ADD'])
+
+    def test_forget_video_removes_one_remembered_skip(self):
+        self.run_sync([NO_MATCH])
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(app.forget_skips(['BBBBBBBBBBB'], state=self.state), 0)
+        self.assertIn('BBBBBBBBBBB', buf.getvalue())
+        self.assertNotIn('skipped', self.state['playlists']['playlist'])
+        # The next run searches it again (and logs it once more).
+        counts, issues, client = self.run_sync([NO_MATCH])
+        self.assertEqual(counts['skip'], 1)
+        self.assertEqual(len(issues), 1)
+
+    def test_forget_video_rejects_a_bad_id(self):
+        self.run_sync([NO_MATCH])
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(app.forget_skips(['not-an-id'], state=self.state), 2)
+        self.assertIn('BBBBBBBBBBB', self.state['playlists']['playlist']['skipped'])
+
+    def test_forget_skipped_clears_every_remembered_skip(self):
+        self.run_sync([NO_MATCH, {'id': 'DDDDDDDDDDD', 'title': 'Private video'}])
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(app.forget_skips([], all_skips=True, state=self.state), 0)
+        self.assertNotIn('skipped', self.state['playlists']['playlist'])
+        self.assertIn('2 remembered skip(s) removed', buf.getvalue())
+
     def test_skipped_entries_are_tiny(self):
         self.run_sync([NO_MATCH])
         saved = json.loads(self.path.read_text(encoding='utf-8'))
         entry = saved['playlists']['playlist']['skipped']['BBBBBBBBBBB']
-        self.assertEqual(entry, {'title': 'Artist - No Match', 'channel': 'U'})
+        # The entry stays small: the title, the channel, the rule version that
+        # gave up (so a later rule change can re-try it quietly).
+        self.assertEqual(entry, {'title': 'Artist - No Match', 'channel': 'U', 'since': app.MATCHER_VERSION})
 
 
 if __name__ == '__main__':

@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-04 (a skip is reported once, and can be retried)
+
+A run after the rule bump re-reported the same two songs (DESTELLO, LOUCARA) and offered their pick links
+again - even though one of them no longer exists on Spotify and the other video is private. Fixed:
+
+* **A re-tried skip is counted but never reported.** When `MATCHER_VERSION` changes, remembered skips get
+  one more try. If the song still does not match, the event is marked quiet: it stays in `Skipped: N` but
+  never reaches Telegram, and no pick link is offered twice. Reading `Skipped: 7 → 3` was misleading; the
+  log now says which songs were re-tried instead.
+* **A video whose title appeared is searched again.** A private/unreadable video was remembered under
+  "Private video"; once it is public the remembered skip no longer hides it (`changed_video()`).
+* **`--forget-video <id>` / `--forget-skipped`.** The only supported way to give a remembered skip another
+  try, instead of editing `data/sync-state.json` by hand. `skipped` entries now also carry `since` (the
+  matcher version that gave up) and `retried`.
+* **A title that repeats the song name is one song.** "MONTAGEM MIAU (MONTAGEM MIAU)" picked up a false
+  `mix` version token from the second "MONTAGEM", so a correct match was refused; `unduplicate()` drops the
+  repeated half before parsing, and `versions_agree()` compares a repeated name once.
+
+`MATCHER_VERSION` is now **11**. Tests: **209**.
+
 ## 2026-11-04 (two ways for videos whose title is not the song)
 
 A real run showed two kinds of upload the title cannot identify:
