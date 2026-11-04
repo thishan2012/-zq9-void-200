@@ -34,7 +34,7 @@ on:
     # 4 runs a day, every 6 hours (UTC). Public repos have unlimited Actions
     # minutes, so the runs cost nothing; a run with no new songs is quick
     # because already-recorded videos are skipped without any Spotify search.
-    #   00, 06, 12, 18 UTC = 05:30, 11:30, 17:30, 23:30 (SL)
+    #   00:17, 06:17, 12:17, 18:17 UTC = 05:47, 11:47, 17:47, 23:47 (SL)
     # GitHub cron is UTC only and may be delayed.
     # Scheduled runs are DRY RUNS unless the repository variable SYNC_ENABLED
     # is set to 'true'.
@@ -42,7 +42,9 @@ on:
     # and "nothing new to sync" is this repository's normal state, so the
     # database step leaves one empty commit on the 1st of each month to keep
     # the clock reset. See "Save sync database" below.
-    - cron: '0 */6 * * *'
+    # Minute 17, not 0: the top of the hour is GitHub's busiest cron slot and
+    # scheduled runs there start late or get dropped under load.
+    - cron: '17 */6 * * *'
     # Weekly retry (Sunday 03:00 UTC = 08:30 SL). Only this run re-asks about
     # songs that were skipped more than RETRY_AFTER_DAYS (7) days ago, so a track
     # that came back to Spotify or a video that turned public is found again

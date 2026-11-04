@@ -80,8 +80,8 @@ spotify:playlist:26ADR9K06DZ826IsgTno1S
    the state file back to the branch).
 2. Scheduled workflows only run from the **default branch**, so the workflow, the secrets and the current
    `data/sync-state.json` must all live there.
-3. Schedule is `0 */6 * * *` — **four runs a day**, every 6 hours (00/06/12/18 UTC =
-   05:30/11:30/17:30/23:30 Sri Lanka). GitHub cron is UTC only and can be delayed.
+3. Schedule is `17 */6 * * *` — **four runs a day**, every 6 hours (00:17/06:17/12:17/18:17 UTC =
+   05:47/11:47/17:47/23:47 Sri Lanka; minute 17 keeps it away from the busy top of the hour). GitHub cron is UTC only and can be delayed.
    Runs with no new songs are quick because already-saved videos are skipped without a search.
    GitHub disables schedules in a public repository after **60 days without activity**, and a month
    with nothing new to sync is exactly the normal case here - so the first real run of each month

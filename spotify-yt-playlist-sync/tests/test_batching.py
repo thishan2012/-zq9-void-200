@@ -304,6 +304,6 @@ class ScheduleTests(unittest.TestCase):
                          root / 'spotify-yt-playlist-sync' / '.github' / 'workflows' / 'sync.yml'):
             data = yaml.safe_load(workflow.read_text(encoding='utf-8'))
             cron = data[True]['schedule'][0]['cron']
-            self.assertEqual(cron, '0 */6 * * *', workflow)
+            self.assertEqual(cron, '17 */6 * * *', workflow)
             # The weekly skip retry is the second schedule and must stay.
             self.assertEqual(data[True]['schedule'][1]['cron'], '0 3 * * 0', workflow)

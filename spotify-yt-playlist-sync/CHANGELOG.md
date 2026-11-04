@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-04 (minute 17, not minute 0)
+
+The four daily runs moved from `0 */6 * * *` to `17 */6 * * *`. The top of the hour is GitHub's
+busiest cron slot: runs scheduled there start 10-40 minutes late, and under heavy load some are
+dropped without a failed run to show for it. Minute 17 keeps the same four times, a little off the
+rush (05:47/11:47/17:47/23:47 Sri Lanka).
+
 ## 2026-11-04 (four runs a day)
 
 The schedule is now `0 */6 * * *` - **four runs a day**, every 6 hours (00/06/12/18 UTC =
