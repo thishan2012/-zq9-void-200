@@ -27,7 +27,7 @@ SEARCH_PAUSE_SECONDS = 0.5  # gap between two real searches (on top of REQUEST_D
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
-MATCHER_VERSION = 12  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 13  # bump when matching rules change: skipped songs get one more try.
 RETRY_AFTER_DAYS = 7  # a remembered skip is retried by the weekly run after this long.
 # Set by the weekly schedule (one run a week, not every four hours).
 RETRY_ENABLED = os.environ.get('RETRY_SKIPPED', '').strip().lower() in ('1', 'true', 'yes')
@@ -474,7 +474,25 @@ class Client:
         album = data.get('album')
         if isinstance(album, dict) and isinstance(album.get('name'), str):
             track['album'] = album['name']
+        external = data.get('external_ids')
+        isrc = external.get('isrc') if isinstance(external, dict) else None
+        if isinstance(isrc, str) and isrc.strip():
+            # The recording's own identifier - the strongest evidence available.
+            track['isrc'] = isrc.strip().upper()
         return track
+
+    def search_ids(self, query, token):
+        """Candidate *IDs* for a query, without the metadata a match check needs.
+
+        Only the ISRC confirmation uses this: it needs many candidates cheaply,
+        and the one whose ISRC equals the description's is fetched in full.
+        """
+        ids = []
+        for item in self.search_query(query, token):
+            track_id = item.get('id') if isinstance(item, dict) else None
+            if isinstance(track_id, str) and re.fullmatch(r'[A-Za-z0-9]{22}', track_id):
+                ids.append(track_id)
+        return ids[:8]
 
     def add(self, playlist, track, token):
         self.add_batch(playlist, [track], token)

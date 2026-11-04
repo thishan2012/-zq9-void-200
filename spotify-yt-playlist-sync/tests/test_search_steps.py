@@ -427,6 +427,48 @@ class LooseDescriptionStepTests(StepTestCase):
         self.assertIsNone(found)
 
 
+class IsrcStepTests(StepTestCase):
+    """An ISRC identifies the recording itself: exact evidence, no title needed."""
+
+    def video_item(self, description='Song: MONTAGEM MIAU\nISRC: BRABC2401234'):
+        return video('MONTAGEM MIAU 🔥', channel='Phonk Daily', description=description)
+
+    def client(self, isrc='BRABC2401234', name='MONTAGEM MIAU'):
+        class IsrcCatalog(Catalog):
+            queries = []
+
+            def search_ids(self, query, token):
+                self.queries.append(query)
+                return ['t1', 't2']
+
+            def spotify_track(self, track_id, token):
+                code = isrc if track_id == 't1' else 'ZZZZZ0000000'
+                return dict(track(track_id, name, 'DJ NEO'), isrc=code)
+        return IsrcCatalog([])
+
+    def test_the_track_with_the_same_isrc_wins(self):
+        client = self.client()
+        found, _ = self.run_step(search_steps.IsrcStep, self.video_item(), client)
+        self.assertEqual(found['id'], 't1')
+        self.assertEqual(len(client.queries), 1)   # one query, no burst
+
+    def test_a_different_isrc_is_refused(self):
+        found, _ = self.run_step(search_steps.IsrcStep, self.video_item(),
+                                 self.client(isrc='OTHER1234567'))
+        self.assertIsNone(found)
+
+    def test_without_an_isrc_the_step_does_not_apply(self):
+        video_item = video('MONTAGEM MIAU', description='Song: MONTAGEM MIAU')
+        self.assertFalse(search_steps.IsrcStep(video_item, app.metadata(video_item), {}).applies())
+
+    def test_the_title_does_not_have_to_match(self):
+        # The ISRC is the recording's identity, so a different-looking title is
+        # still the right track when the identifier agrees.
+        found, _ = self.run_step(search_steps.IsrcStep, self.video_item(),
+                                 self.client(name='MONTAGEM MIAU (Slowed)'))
+        self.assertEqual(found['id'], 't1')
+
+
 class LinkedTrackStepTests(StepTestCase):
     """The uploader pasted the Spotify link: no search needed, only the version."""
 

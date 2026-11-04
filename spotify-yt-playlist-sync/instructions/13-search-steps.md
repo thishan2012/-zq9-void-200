@@ -1,7 +1,7 @@
-# 🔎 13 — Extra search steps (28 වෙන වෙනම ක්‍රම)
+# 🔎 13 — Extra search steps (29 වෙන වෙනම ක්‍රම)
 
 මේ ගොනුව කියවන්නේ **"ඇයි මේ සින්දුව add වුණේ නැත්තේ?"** කියන ප්‍රශ්නයට උත්තර දෙන්න.
-පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 28 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
+පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 29 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
 හැම එකක්ම වෙන වෙනම කුඩා experiment එකක් — කැඩුණොත් අනිත් ඒවාට බලපෑමක් නෑ, අයින් කරන්නත් පුළුවන්.
 
 > 👉 ලොජික් එක තියෙන්නේ `syncer/search_steps.py` එකේ. ලැයිස්තුව බලන්න: `python -m syncer.app --steps`
@@ -26,7 +26,7 @@
 
 ---
 
-## 2. Steps 28
+## 2. Steps 29
 
 | # | Code | මොකද කරන්නේ | උදාහරණය |
 |---|---|---|---|
@@ -34,7 +34,7 @@
 | 2 | `SINGLE` | collab එකේ එක අයෙක්ගේ නමින් විතරක් search | `MONTAGEM RUNE - WUYS x KIT` |
 | 3 | `CHANNEL` | YouTube channel නම artist විදිහට | uploader ගේ නම = artist |
 | 4 | `TOPIC` | `Artist - Topic` channel එකේ ඇත්ත නම | `SHAKA - Topic` → SHAKA |
-| 5 | `SUFFIX` | title එකේ marketing කපනවා (`\| GENRE` වගේ කොටස්) | `DESTELLO - HDN` + `VIRAL PHONK` → HDN |
+| 5 | `SUFFIX` | **4**  |  4% | extra step |
 | 6 | `COUNTRY` | accent/භාෂා වෙනස්කම් fold (`ã`, `ł`, Chinese) | `CORTA NO SALÃO` ↔ `CORTA NO SALAO` |
 | 7 | `FEAT` | `(feat. X)` එකේ X ව main artist විදිහට | `FUNK TONTO (feat. Mc Ombrinho)` |
 | 8 | `DURATION` | එකම නමට versions කීපයක් → video duration එකෙන් තෝරනවා | Slowed vs Original |
@@ -52,12 +52,13 @@
 | 20 | `CLEANARTIST` | title clean කරලා ඉතුරු වෙන artist එකෙන් search | `DESTELLO - HDN \| VIRAL PHONK` |
 | 21 | `TITLEONLY` | title විතරක් — duration එකයි "track නම title එකේ තියෙනවද" කියලා දෙකෙන්ම ඔප්පු වුණොත් විතරයි | `MONTAGEM RUNE - WUYS x KIT` |
 | 22 | `SONGTAG` | title එකේ ඇත්ත song නම නැති uploads: description/hashtags වල `Song: …`, `Artist: …`, ♪ line, `#MontagemMiau` වලින් නම ගන්නවා | `MONTAGEM MIAU 🔥` |
-| 23 | `DESCTEXT` | description එකේ label නැති line එකක් (නම විතරක්) song නම විදිහට — 0.92 floor | `MONTAGEM MIAU` + `Prod. by DJ NEO` |
-| 24 | `BROKEN` | dash එකේ දෙපැත්ත **අනිත් පැත්තට** ලියලා තියෙනවා (`DESTELLO - HDN` = artist `HDN`, song `DESTELLO`) | `DESTELLO - HDN` + channel `HDN🎹` |
-| 25 | `ALBUM` | version/naming එක **album එකේ** තියෙනවා (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album එකේ | 
-| 26 | `PART` | Spotify එකේ `Pt. 1` / `Pt. 2` විදිහට කැඩිච්ච titles එකම සින්දුව විදිහට | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
-| 27 | `POPULAR` | එකම title එකේ matches කීපයක් → **වැඩිම play ගණන** ඇති එක (play ගණනක් නැත්නම්/සමාන නම් → තෝරන්නේ නෑ) | duplicate uploads |
-| 28 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
+| 23 | `ISRC` | description එකේ `ISRC:` එකක් තිබ්බොත්, ඒ **exact ISRC** එක තියෙන Spotify candidate එක — නම/artist check නෑ | `ISRC: BRABC2401234` |
+| 24 | `DESCTEXT` | description එකේ label නැති line එකක් (නම විතරක්) song නම විදිහට — 0.92 floor | `MONTAGEM MIAU` + `Prod. by DJ NEO` |
+| 25 | `BROKEN` | dash එකේ දෙපැත්ත **අනිත් පැත්තට** ලියලා තියෙනවා (`DESTELLO - HDN` = artist `HDN`, song `DESTELLO`) | `DESTELLO - HDN` + channel `HDN🎹` |
+| 26 | `ALBUM` | version/naming එක **album එකේ** තියෙනවා (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album එකේ | 
+| 27 | `PART` | Spotify එකේ `Pt. 1` / `Pt. 2` විදිහට කැඩිච්ච titles එකම සින්දුව විදිහට | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
+| 28 | `POPULAR` | එකම title එකේ matches කීපයක් → **වැඩිම play ගණන** ඇති එක (play ගණනක් නැත්නම්/සමාන නම් → තෝරන්නේ නෑ) | duplicate uploads |
+| 29 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
 
 **හැම step එකකුත් අන්තිමට artist conflict එක බලනවා** (`artist_ok()`): video එකේ title එකේ artist කෙනෙක් තියෙනවා නම්, Spotify track එකේ ඒ නම නැත්නම් → match එක අවිශ්වාසී, ඒ නිසා ගන්නේ නෑ.
 ඒකයි `DESTELLO - HDN` වගේ එකක් වෙන artist කෙනෙක්ගේ `HDN` එකට match වෙන්නේ නැත්තේ (Spotify එකේ DESTELLO නෑ නම් → skip).
@@ -226,15 +227,28 @@ Never matched: `REVERSED`, `SINGLE`, `SHORT`, …
 * Dry run එකකින් count වෙන්නේ නෑ (dry run එකේ bookkeeping විතරයි) — live run එකකින් + dry run එකේ skip වුණ ඒවා වෙනස්.
 * ඒකම table එක Actions **job summary** එකටත් append වෙනවා.
 
+## 2b5. `ISRC` (23) — recording එකේ අංකය
+
+Description එකේ **`ISRC: BRABC2401234`** වගේ එකක් තිබ්බොත්, ඒක **recording එකේම අංකය**:
+
+1. description එකේ නම / artist / producer / channel වලින් candidate queries හදනවා
+2. ඒ results වල **track IDs** ගන්නවා (metadata ඕන නෑ — ලාභයි)
+3. හැම ID එකක්ම එක පාරක් කියවලා **`external_ids.isrc`** description ISRC එකට සමානද බලනවා
+4. සමාන නම් → ඒ track එක. නම / version / artist check **ඕන නෑ** (ISRC එකම ඔප්පුව)
+
+* Spotify search API එකේ ISRC field එකක් නෑ → ID-by-ID බැලීම අවශ්‍ය. ඒ නිසා එක query එකකට **උපරිම candidates 8**, හා query එකකින් හම්බුණොත් එතනින් නවත්තනවා (burst නෑ).
+* Candidates වල ISRC **හිස්** නම් ඊළඟ query එකට යනවා — එකම query එකේ request වියදම් නොකර.
+* `ISRC:` **නැති** descriptions වලට මේක දුවන්නේ නෑ; අනිත් steps එහෙමම.
+
 ## 2b1a. Rate limit — search ගණන පාලනය
 
-Steps 28ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:
+Steps 29ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:
 
 1. **Extra steps යන්නේ skip වුණ සින්දුවලට විතරයි.** `STRICT`/`LOOSE`/`DETAIL` වලින් හම්බ වුණොත්, නැත්නම් සින්දුව දැනටමත් playlist එකේ තියෙනවා නම් → අමතර query **0**.
 2. **එකම query එක දෙපාරක් යන්නේ නෑ.** Run එක ඇතුළේ cache එකක් තියෙනවා (`SEARCH_CACHE_MAX` = 5000). `Nulteex shaka` යැව්වට පස්සේ `shaka` එකට ආයේ request එකක් යන්නේ නෑ. Run එක ඉවර වෙද්දී log එකේ: `Spotify searches: 41 real query(s), 17 reused from the run cache`.
 3. **Search දෙකක් අතරේ පරතරයක්.** `SEARCH_PAUSE_SECONDS` (default `0.5s`) — `REQUEST_DELAY_SECONDS` (default 2s) උඩින්.
 4. **429 ආවොත්** `Retry-After` එක බලලා ආයේ උත්සාහ කරනවා (read requests 3 වතෙක්), ඒ වගේම ඒ run එකේ ඉතුරු searches අතරේ පරතරය **දෙගුණ** වෙනවා — උපරිම `30s`.
-5. **Session එක මැරිලා නම් (403 / blocked cookie) ඉතුරු steps දුවන්නේ නෑ** — එකම error එකට steps 28ක් වියදම් කරන එක නවත්තලා, run එක එහෙමම fail වෙනවා.
+5. **Session එක මැරිලා නම් (403 / blocked cookie) ඉතුරු steps දුවන්නේ නෑ** — එකම error එකට steps 29ක් වියදම් කරන එක නවත්තලා, run එක එහෙමම fail වෙනවා.
 
 ## 2b1b. Skip වෙන සින්දුවක් අතින් add කරන්න (manual pick)
 
@@ -415,7 +429,7 @@ class MyStep(Step):
 
 ## 6. පොදු ප්‍රශ්න
 
-**Q. Steps 28ම හැම සින්දුවකටම දුවනවද?**
+**Q. Steps 29ම හැම සින්දුවකටම දුවනවද?**
 නෑ. `applies()` එකෙන් අදාළ නැති ඒවා මුලින්ම අයින් වෙනවා (උදා: `REVERSED` දුවන්නේ artist credit එකේ `x`/`,` තියෙන සින්දුවලට විතරයි).
 Match නොවුණු සින්දුවකට steps 8–11ක් විතරයි දුවන්නේ, එකකට search 1–3ක්.
 
