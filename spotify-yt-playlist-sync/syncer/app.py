@@ -2051,6 +2051,86 @@ def forget_skips(video_ids, *, all_skips=False, expired_only=False, state=None, 
     return 0
 
 
+def reset_scope(kind, playlist=None):
+    """Return the part of the database a reset would drop (empty dict if nothing).
+
+    ``kind`` is ``'all'`` (the whole database), ``'playlist'`` (one playlist's
+    record) or ``'history'`` (the statistics, keeping what stops duplicates).
+    """
+    state = load_state(STATE_PATH)
+    playlists = state.get('playlists') or {}
+    if kind == 'all':
+        # An empty database is nothing to reset, even though the file exists.
+        return dict(state) if playlists or state.get('matcher') else {}
+    if kind == 'playlist':
+        return {playlist: playlists[playlist]} if playlist in playlists else {}
+    return {name: {key: db[key] for key in ('matched', 'worked', 'ran', 'runs')
+                   if isinstance(db, dict) and key in db}
+            for name, db in playlists.items() if isinstance(db, dict)}
+
+
+def reset_database(kind='all', playlist=None, *, dry_run=True, backup=True):
+    """Drop part (or all) of the sync database - the emergency rebuild switch.
+
+    What it costs is spelled out before anything is written:
+      * ``all``      every remembered video, skip and statistic: the next run
+                     searches the whole playlist again (nothing is removed from
+                     Spotify - this only forgets what was already done).
+      * ``playlist`` one playlist's record, leaving the others alone.
+      * ``history``  the statistics only; the duplicate guard stays intact.
+
+    A copy of the file is kept (``sync-state.json.bak``) unless ``backup`` is
+    False, so a reset is never the end of the story. ``dry_run`` prints the
+    same report and changes nothing.
+    """
+    scope = reset_scope(kind, playlist)
+    if not scope:
+        print(f'Nothing to reset: {kind}' + (f' ({playlist})' if playlist else '') + ' is already empty.')
+        return 0
+    playlist_scope = scope.get('playlists') if kind == 'all' else scope
+    playlist_scope = playlist_scope if isinstance(playlist_scope, dict) else {}
+    saved = sum(len(db.get('videos') or {}) for db in playlist_scope.values() if isinstance(db, dict))
+    skips = sum(len(db.get('skipped') or {}) for db in playlist_scope.values() if isinstance(db, dict))
+    stats = sum(sum(value for value in (db.get(key) or {}).values() if isinstance(value, int))
+                for db in playlist_scope.values() if isinstance(db, dict)
+                for key in ('matched', 'worked', 'ran'))
+    pending = sum(len((db.get('pending') or {}).get('items') or [])
+                  for db in playlist_scope.values()
+                  if isinstance(db, dict) and isinstance(db.get('pending'), dict))
+    print(f'Reset scope: {kind}' + (f' ({playlist})' if playlist else ''))
+    print(f'  saved songs forgotten:  {saved}  (the next run searches them again)')
+    print(f'  remembered skips:       {skips}')
+    print(f'  statistics counters:    {stats}')
+    if pending:
+        print(f'  pending writes:         {pending}  (an unconfirmed add stays unconfirmed; check the playlist)')
+    print('  Spotify playlist:       untouched (this only forgets what the sync already did)')
+    if dry_run:
+        print('Dry run: nothing was changed. Run it without --dry-run to apply.')
+        return 0
+
+    if backup:
+        copy = STATE_PATH.with_name(STATE_PATH.name + '.bak')
+        copy.write_text(STATE_PATH.read_text(encoding='utf-8'), encoding='utf-8')
+        print(f'Backup written: {copy}')
+
+    state = load_state(STATE_PATH)
+    if kind == 'all':
+        state = {'version': 1, 'playlists': {}}
+    elif kind == 'playlist':
+        (state.get('playlists') or {}).pop(playlist, None)
+    else:
+        for db in (state.get('playlists') or {}).values():
+            if isinstance(db, dict):
+                for key in ('matched', 'worked', 'ran', 'runs'):
+                    db.pop(key, None)
+        # The matcher stamp says "these skips were tried under the old rules";
+        # the skips are gone, so clear it too.
+        state.pop('matcher', None)
+    save_state(STATE_PATH, state)
+    print('Database reset. The next run starts from a clean state.')
+    return 0
+
+
 def release_expired_skips(state):
     """Drop the skips older than RETRY_AFTER_DAYS; returns how many were released.
 
@@ -2255,6 +2335,17 @@ def main():
     parser.add_argument('--retry-expired', action='store_true',
                         help=f'remove only the remembered skips older than {RETRY_AFTER_DAYS} days and list '
                              'them (the weekly scheduled run uses this before syncing)')
+    parser.add_argument('--reset-db', choices=('all', 'playlist', 'history'), metavar='SCOPE',
+                        help='emergency switch: drop the sync database so the next run starts clean. '
+                             'SCOPES: all (everything), playlist (one playlist, needs --playlist), '
+                             'history (statistics only, keeps the duplicate guard). Nothing is removed '
+                             'from Spotify; a .bak copy of the file is kept. Pair with --yes to apply.')
+    parser.add_argument('--playlist', metavar='PLAYLIST_ID',
+                        help='with --reset-db playlist: which playlist record to drop')
+    parser.add_argument('--no-backup', action='store_true',
+                        help='with --reset-db: do not keep sync-state.json.bak')
+    parser.add_argument('--yes', action='store_true',
+                        help='with --reset-db: really apply it (without this it is a dry run)')
     parser.add_argument('--save-explain', action='store_true',
                         help='with a normal run: keep the rejected search results of skipped songs in the '
                              'database so --explain can show them without searching again')
@@ -2270,6 +2361,15 @@ def main():
         for number, step in enumerate(search_steps.STEPS, start=1):
             print(f'{number:2d}. {step.code:<10} {step.title}')
         return 0
+    if args.reset_db:
+        if args.reset_db == 'playlist' and not (args.playlist or '').strip():
+            print('--reset-db playlist needs --playlist PLAYLIST_ID (see --db-summary for the ID).')
+            return 2
+        if args.reset_db == 'playlist' and not re.fullmatch(r'[A-Za-z0-9]{10,40}', args.playlist.strip()):
+            print(f'Not a playlist ID: {args.playlist}')
+            return 2
+        return reset_database(args.reset_db, (args.playlist or '').strip() or None,
+                              dry_run=not args.yes, backup=not args.no_backup)
     if args.retry_expired:
         # The weekly run calls this before syncing; here it only reports.
         return forget_skips([], expired_only=True, dry_run=True)

@@ -5,6 +5,7 @@
 | # | ඔයා ඉල්ලපු දේ | කළේ කොහොමද |
 |---|---|---|
 | 1 | YT pagination (50/page, 200 = 4 pages) | `nextPageToken` loop එක දැනටමත් තිබුණා — දැන් log එකේ page ගාණ print වෙනවා ("page 1…4, 200 items"). |
+| 1b | **හදිසි අවස්ථාවක** database එක reset කරන්න ඕන | Actions → **Run workflow** → *Emergency: reset the sync database* (`history` / `playlist` / `all`). Local එකේ නම් `python -m syncer.app --reset-db all --yes`. **Spotify playlist එකට අත ගහන්නේ නෑ**, `.bak` copy එකක් ඉතුරු වෙනවා |
 | 2 | Skip වුණ සින්දුවක් ආයේ try කරන්න ඕන | **ඉරිදා 03:00 UTC run එකේදී තනියෙන්ම** වෙනවා (දවස් 7ට වඩා පරණ skips). දැන්ම බලන්න `python -m syncer.app --retry-expired`, එකක් ආයේ try කරන්න `--forget-video <id>` |
 | 2b | Spotify rate limit (search 200 = block) | `REQUEST_DELAY_SECONDS` (default **2s**, හැම request එකට කලින්) + `SEARCH_PAUSE_SECONDS` (default **0.5s**, search දෙකක් අතරේ; 429 ආවොත් 30s වෙනකම් දෙගුණ වෙනවා). එකම query එක දෙපාරක් යන්නේ නෑ (run cache). අලුතෙන්: 429/5xx ආවොත් **read** requests `Retry-After` එක බලලා 3 වතාවක් තෙක් ආයේ උත්සාහ කරනවා. Write එකක් කවදාවත් retry කරන්නේ නෑ. |
 | 3 | Batch add (100/request) | `add_batch()` අලුතෙන්. 200 සින්දු = **requests 2** (100 + 100). `SPOTIFY_BATCH_SIZE` එකෙන් 1–100 අතර වෙනස් කරන්න පුළුවන්. |
@@ -14,7 +15,7 @@
 | 7 | Telegram එකට **full log** | එක run එකකට messages දෙකක්: **Summary** (counts + SKIP/FAIL විස්තර) + **Full log** (හැම සින්දුවක්ම: #number, ADD/WOULD ADD/SKIP/FAIL, channel, YouTube link, match method, Spotify link, reason). 4000 chars ට වැඩි නම් line boundary එකෙන් split — කිසිම entry එකක් නැති වෙන්නේ නෑ. |
 | — | Bonus | Batch එකක outcome අපැහැදිලි නම් (timeout / 5xx / GraphQL error) `pending` state එකේ තියලා run එක නවතිනවා; ඊළඟ run එකේ reconcile වෙනවා. Duplicate එකක් හදන්නේ නෑ. |
 
-**ත්‍යාග 224ක්, හැමෝම pass** (`python -m unittest discover -s tests`). අලුත් `tests/test_remembered.py` (skip/fail මතකය) + `tests/test_search_steps.py` (steps 29). `tests/test_batching.py` එකේ: 200 songs → batches [100, 100], batch size cap, duplicate skip, second run = 0 adds, dry-run, pending reconcile, 429 retry, full-log.
+**ත්‍යාග 241ක්, හැමෝම pass** (`python -m unittest discover -s tests`). අලුත් `tests/test_remembered.py` (skip/fail මතකය) + `tests/test_search_steps.py` (steps 29). `tests/test_batching.py` එකේ: 200 songs → batches [100, 100], batch size cap, duplicate skip, second run = 0 adds, dry-run, pending reconcile, 429 retry, full-log.
 
 ---
 
@@ -61,7 +62,7 @@ Links දාන්න ක්‍රම 2ක්:
 ```bash
 cd spotify-yt-playlist-sync
 python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v        # 224 tests
+.venv/bin/python -m unittest discover -s tests -v        # 241 tests
 
 export YOUTUBE_PLAYLIST='https://www.youtube.com/playlist?list=PL…'
 export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
