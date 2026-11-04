@@ -144,7 +144,26 @@ report නොකරන්නේ). ඒත් මේ අවස්ථා 3කදී
 ```bash
 .venv/bin/python -m syncer.app --forget-video aLZNbOUOyI4   # එක සින්දුවක්
 .venv/bin/python -m syncer.app --forget-skipped             # okkoma
+.venv/bin/python -m syncer.app --retry-expired              # weekly එකේදී retry වෙන ඒවා බලන්න (වෙනසක් නෑ)
 ```
+
+### 🔁 Weekly auto-retry (schedule එකේ තියෙනවා — setting එකක් ඕන නෑ)
+
+Workflow එකේ cron දෙකක් තියෙනවා:
+
+| Cron | වේලාව | කරන්නේ |
+|---|---|---|
+| `0 */4 * * *` | දිනපතා 6 පාරක් | සාමාන්‍ය sync (skip එකක් ආයේ search කරන්නේ නෑ) |
+| `0 3 * * 0` | **ඉරිදා 03:00 UTC** (08:30 SL) | ඒ වගේම, **දවස් 7කට වඩා පරණ skip** ටික ආයේ එක පාරක් search කරනවා |
+
+ඒ නිසා:
+
+* copyright නිසා Spotify එකෙන් අයින් වුණ track එකක් **ආයේ ආවොත්** → ඉරිදා run එකේදී තනියෙන්ම add වෙනවා (`--forget-video` කරන්න ඕන නෑ)
+* private වුණ වීඩියෝ එකක් public වුණොත් → ඒකට අමතරව `changed_video()` එකෙන් ඊළඟ run එකේම හම්බ වෙනවා
+* ආයේ skip වුණොත් → **report වෙන්නේ නෑ** (count විතරයි), ඒ නිසා skip එකක් හැම සතියකම ඔබට කරදර කරන්නේ නෑ
+* ඉරිදා run එකේදී හම්බ වුණොත් → **ADD** (dry run එකේ නම් WOULD ADD) විදිහට report වෙනවා
+
+නැවතිලා තියෙන ටික බලන්න: `python -m syncer.app --retry-expired` (මොනවද ඊළඟ weekly එකේදී try වෙන්නේ කියලා පෙන්නනවා, වෙනසක් කරන්නේ නෑ).
 
 ඊළඟ run එකේදී ඒ සින්දුව ආයේ search වෙනවා; හම්බුණොත් add වෙනවා, නැත්තං ආයේ එක පාරක් report වෙනවා.
 

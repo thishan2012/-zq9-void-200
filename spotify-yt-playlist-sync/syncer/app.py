@@ -11,6 +11,7 @@ import re
 import struct
 import time
 import unicodedata
+from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlsplit, urlunsplit
 
@@ -27,6 +28,9 @@ TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit gua
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
 MATCHER_VERSION = 11  # bump when matching rules change: skipped songs get one more try.
+RETRY_AFTER_DAYS = 7  # a remembered skip is retried by the weekly run after this long.
+# Set by the weekly schedule (one run a week, not every four hours).
+RETRY_ENABLED = os.environ.get('RETRY_SKIPPED', '').strip().lower() in ('1', 'true', 'yes')
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -1355,7 +1359,8 @@ def remember_skip(db, video, retried=False):
     """Save a real skip in the database so it is not searched again every run."""
     items = db.get('skipped')
     items = items if isinstance(items, dict) else {}
-    entry = {'title': log_text(video.get('title')), 'since': MATCHER_VERSION}
+    entry = {'title': log_text(video.get('title')), 'since': MATCHER_VERSION,
+             'at': datetime.now(timezone.utc).replace(microsecond=0).isoformat()}
     if video.get('channel'):
         entry['channel'] = log_text(video.get('channel'))
     if retried:
@@ -1641,6 +1646,23 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
             save_skip_changes(state, dry_run)
             LOG.info('Matching rules v%s -> v%s: previously skipped songs will be tried once more',
                      previous or '?', MATCHER_VERSION)
+    if RETRY_ENABLED:
+        # The weekly job gives every skip older than the window one more try.
+        # Those songs are reported only if they match now (an ADD is always
+        # shown); a second miss stays quiet, so the retry is free for the reader.
+        released = set()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=RETRY_AFTER_DAYS)
+        for entry_id, entry in list((db.get('skipped') or {}).items()) if isinstance(db.get('skipped'), dict) else []:
+            if skip_expired(entry, cutoff):
+                released.add(entry_id)
+        if released:
+            db['skipped'] = {key: value for key, value in db['skipped'].items() if key not in released}
+            if not db['skipped']:
+                db.pop('skipped', None)
+            retried_ids.update(released)
+            save_skip_changes(state, dry_run)
+            LOG.info('Weekly retry: %d remembered skip(s) matched the %d-day window and are searched again',
+                     len(released), RETRY_AFTER_DAYS)
     saved_skips = db.get('skipped')
     saved_skips = saved_skips if isinstance(saved_skips, dict) else {}
     retried_ids = retried_ids if isinstance(retried_ids, set) else set()
@@ -1863,13 +1885,17 @@ def db_summary(path, title='Database'):
     return '\n'.join(lines) + '\n'
 
 
-def forget_skips(video_ids, *, all_skips=False, state=None):
+def forget_skips(video_ids, *, all_skips=False, expired_only=False, state=None, dry_run=False):
     """Drop remembered skips so the next run searches those songs again.
 
     A skip is remembered forever on purpose (that is what stops a 200-song run
     from re-reporting the same misses). When one becomes findable again - the
     track came back to Spotify, a video turned public - this is how it gets
     another try without editing data/sync-state.json by hand.
+
+    ``expired_only`` selects the skips recorded at least RETRY_AFTER_DAYS ago,
+    which is what the weekly scheduled retry uses: a fresh miss is not retried
+    the next day, it waits out the window first.
     """
     state = state if state is not None else load_state(STATE_PATH)
     wanted = {str(video_id).strip() for video_id in video_ids if str(video_id).strip()}
@@ -1877,6 +1903,7 @@ def forget_skips(video_ids, *, all_skips=False, state=None):
         if not re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id):
             print(f'Not a YouTube video ID: {video_id}')
             return 2
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RETRY_AFTER_DAYS)
     removed = []
     for playlist, db in (state.get('playlists') or {}).items():
         if not isinstance(db, dict):
@@ -1887,6 +1914,8 @@ def forget_skips(video_ids, *, all_skips=False, state=None):
         for video_id in list(skips):
             if not all_skips and video_id not in wanted:
                 continue
+            if expired_only and not skip_expired(skips.get(video_id), cutoff):
+                continue
             entry = skips.get(video_id) if isinstance(skips.get(video_id), dict) else {}
             removed.append((playlist, video_id, entry.get('title', '')))
             del skips[video_id]
@@ -1895,11 +1924,51 @@ def forget_skips(video_ids, *, all_skips=False, state=None):
     if not removed:
         print('Nothing to forget: no remembered skip matched.')
         return 0
-    save_state(STATE_PATH, state)
+    if not dry_run:
+        save_state(STATE_PATH, state)
     for playlist, video_id, title in removed:
         print(f'Forgot skip {video_id}: {title}  (next run searches it again)')
-    print(f'{len(removed)} remembered skip(s) removed.')
+    print(f'{len(removed)} remembered skip(s) removed' + (' (dry run: not saved)' if dry_run else '') + '.')
     return 0
+
+
+def release_expired_skips(state):
+    """Drop the skips older than RETRY_AFTER_DAYS; returns how many were released.
+
+    The same window sync() applies when RETRY_SKIPPED is set; kept separate so
+    --retry-expired can show what the weekly run would do.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RETRY_AFTER_DAYS)
+    released = 0
+    for db in (state.get('playlists') or {}).values():
+        skips = db.get('skipped') if isinstance(db, dict) else None
+        if not isinstance(skips, dict):
+            continue
+        for video_id in list(skips):
+            if skip_expired(skips.get(video_id), cutoff):
+                del skips[video_id]
+                released += 1
+        if not skips:
+            db.pop('skipped', None)
+    return released
+
+
+def skip_expired(entry, cutoff):
+    """True when a remembered skip is older than the retry window.
+
+    Entries saved before the timestamp existed are treated as expired, so the
+    first run after this change retries the skips that were already there.
+    """
+    when = entry.get('at') if isinstance(entry, dict) else None
+    if not isinstance(when, str):
+        return True
+    try:
+        saved = datetime.fromisoformat(when)
+    except ValueError:
+        return True
+    if saved.tzinfo is None:
+        saved = saved.replace(tzinfo=timezone.utc)
+    return saved <= cutoff
 
 
 def explain(state=None, limit=25):
@@ -1986,6 +2055,9 @@ def main():
     parser.add_argument('--forget-skipped', action='store_true',
                         help='remove every remembered skip (a song that is on Spotify again gets another '
                              'try), then exit')
+    parser.add_argument('--retry-expired', action='store_true',
+                        help=f'remove only the remembered skips older than {RETRY_AFTER_DAYS} days and list '
+                             'them (the weekly scheduled run uses this before syncing)')
     parser.add_argument('--save-explain', action='store_true',
                         help='with a normal run: keep the rejected search results of skipped songs in the '
                              'database so --explain can show them without searching again')
@@ -1998,6 +2070,9 @@ def main():
         for number, step in enumerate(search_steps.STEPS, start=1):
             print(f'{number:2d}. {step.code:<10} {step.title}')
         return 0
+    if args.retry_expired:
+        # The weekly run calls this before syncing; here it only reports.
+        return forget_skips([], expired_only=True, dry_run=True)
     if args.forget_video or args.forget_skipped:
         return forget_skips(args.forget_video, all_skips=args.forget_skipped)
     if args.explain:
@@ -2101,7 +2176,7 @@ def main():
         delivered = client.telegram_many(os.environ.get('TELEGRAM_BOT_TOKEN'),
                                          os.environ.get('TELEGRAM_CHAT_ID'), reports)
         if not delivered:
-            # Telegram限额, blocked bot or no secrets: the report still has to
+            # Telegram rate limit, blocked bot or no secrets: the report still has to
             # reach the user, so print the same messages in the Actions log.
             LOG.warning('Telegram report was not delivered; printing it to the Actions log instead')
             for message in reports:

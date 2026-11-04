@@ -51,6 +51,7 @@ Go to **Settings → Secrets and variables → Actions** in *your private fork/c
 | `SPOTIFY_PLAYLIST` | placeholder URL in `sync.yml` | destination playlist URL or ID |
 | `REQUEST_DELAY_SECONDS` | `2` | delay before **every** request (0–60). Keep 1–2 for 200-song playlists. |
 | `SEARCH_PAUSE_SECONDS` | `0.5` | extra gap between two **searches** (0–60), and it doubles up to 30 s after a 429. |
+| `RETRY_AFTER_DAYS` | `7` | (code constant) the weekly Sunday run retries skips older than this many days. |
 | `SPOTIFY_BATCH_SIZE` | `100` | tracks per add request (1–100). Lower it if Spotify starts rejecting. |
 | `SYNC_ENABLED` | *(unset)* | `true` lets **scheduled** runs write. Unset = scheduled runs stay dry runs. |
 
@@ -138,7 +139,7 @@ export YOUTUBE_API_KEY='…'
 .venv/bin/python -m syncer.app --explain     # why were the skipped songs skipped? (read-only)
 .venv/bin/python -m syncer.app --forget-video aLZNbOUOyI4   # search that skipped song again
 .venv/bin/python -m syncer.app --forget-skipped             # search every remembered skip again
-.venv/bin/python -m unittest discover -s tests -v   # 209 tests
+.venv/bin/python -m unittest discover -s tests -v   # 212 tests
 ```
 
 `--explain` searches every remembered skip once more and prints, per song, what `STRICT`/`LOOSE` and each
@@ -149,6 +150,12 @@ extra step returned plus a verdict (`MATCH PART` = the song is on Spotify and st
 `--forget-video <id>` / `--forget-skipped` are the way back for a remembered skip: the track came back to
 Spotify, a private video turned public, or a rule was fixed. The entry is removed from
 `data/sync-state.json`, so the next run searches that song again and may report it once more.
+
+**The weekly run does this by itself.** Besides the six 4-hourly runs, the schedule has one weekly entry
+(`0 3 * * 0`, Sunday 03:00 UTC) that also retries every skip older than `RETRY_AFTER_DAYS` (7). A track that
+came back to Spotify, or a video that turned public, is therefore found again with no manual step - a song
+that still misses is counted but not reported, so the retry is free for the reader. `--retry-expired` lists
+what the next weekly run would retry.
 
 The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
 
@@ -193,7 +200,7 @@ syncer/app.py                all logic (YouTube, Spotify transport, matching, ba
 data/sync-state.json         database: per playlist {videos, pending}
 data/track-overrides.json    manual YouTube → Spotify mappings
 instructions/00…11-*.md      A–Z guides (start at instructions/README.md)
-tests/                       209 unit tests (matching, transport, batching, rate limits, reporting)
+tests/                       212 unit tests (matching, transport, batching, rate limits, reporting)
 cookies/README.md            why the cookie file is not in Git
 ```
 

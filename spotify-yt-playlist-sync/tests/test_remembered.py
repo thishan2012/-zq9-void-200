@@ -223,6 +223,33 @@ class RememberedTests(unittest.TestCase):
         self.assertEqual(counts['add'], 1)
         self.assertEqual([event['status'] for event in issues], ['WOULD ADD'])
 
+    def test_the_weekly_retry_releases_only_expired_skips(self):
+        self.run_sync([NO_MATCH, {'id': 'DDDDDDDDDDD', 'title': 'Private video'}])
+        db = self.state['playlists']['playlist']
+        # One skip is old, the other was recorded just now.
+        db['skipped']['BBBBBBBBBBB']['at'] = '2020-01-01T00:00:00+00:00'
+        released = app.release_expired_skips(self.state)
+        self.assertEqual(released, 1)
+        self.assertNotIn('BBBBBBBBBBB', db['skipped'])
+        self.assertIn('DDDDDDDDDDD', db['skipped'])
+
+        # The released song is searched again (and reported, because it is the
+        # first time this run's answer is told to the reader again).
+        counts, issues, client = self.run_sync([NO_MATCH])
+        self.assertTrue(client.searches)
+        self.assertEqual(counts['skip'], 1)
+
+    def test_a_fresh_skip_survives_the_weekly_retry(self):
+        self.run_sync([NO_MATCH])
+        self.assertEqual(app.release_expired_skips(self.state), 0)
+        self.assertIn('BBBBBBBBBBB', self.state['playlists']['playlist']['skipped'])
+
+    def test_an_old_entry_without_a_timestamp_is_retried(self):
+        # Entries written before the timestamp existed: retried once, then dated.
+        self.state['playlists']['playlist'] = {'videos': {},
+                                               'skipped': {'BBBBBBBBBBB': {'title': 'Artist - No Match'}}}
+        self.assertEqual(app.release_expired_skips(self.state), 1)
+
     def test_forget_video_removes_one_remembered_skip(self):
         self.run_sync([NO_MATCH])
         import contextlib, io
@@ -258,8 +285,13 @@ class RememberedTests(unittest.TestCase):
         saved = json.loads(self.path.read_text(encoding='utf-8'))
         entry = saved['playlists']['playlist']['skipped']['BBBBBBBBBBB']
         # The entry stays small: the title, the channel, the rule version that
-        # gave up (so a later rule change can re-try it quietly).
-        self.assertEqual(entry, {'title': 'Artist - No Match', 'channel': 'U', 'since': app.MATCHER_VERSION})
+        # gave up (so a later rule change can re-try it quietly) and the time it
+        # gave up (so the weekly run knows the retry window has passed).
+        self.assertEqual(set(entry), {'title', 'channel', 'since', 'at'})
+        self.assertEqual(entry['title'], 'Artist - No Match')
+        self.assertEqual(entry['channel'], 'U')
+        self.assertEqual(entry['since'], app.MATCHER_VERSION)
+        self.assertTrue(entry['at'].endswith('+00:00'))
 
 
 if __name__ == '__main__':
