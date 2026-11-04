@@ -13,7 +13,7 @@
 | 7 | Telegram එකට **full log** | එක run එකකට messages දෙකක්: **Summary** (counts + SKIP/FAIL විස්තර) + **Full log** (හැම සින්දුවක්ම: #number, ADD/WOULD ADD/SKIP/FAIL, channel, YouTube link, match method, Spotify link, reason). 4000 chars ට වැඩි නම් line boundary එකෙන් split — කිසිම entry එකක් නැති වෙන්නේ නෑ. |
 | — | Bonus | Batch එකක outcome අපැහැදිලි නම් (timeout / 5xx / GraphQL error) `pending` state එකේ තියලා run එක නවතිනවා; ඊළඟ run එකේ reconcile වෙනවා. Duplicate එකක් හදන්නේ නෑ. |
 
-**ත්‍යාග 186ක්, හැමෝම pass** (`python -m unittest discover -s tests`). අලුත් `tests/test_remembered.py` (skip/fail මතකය) + `tests/test_search_steps.py` (steps 25). `tests/test_batching.py` එකේ: 200 songs → batches [100, 100], batch size cap, duplicate skip, second run = 0 adds, dry-run, pending reconcile, 429 retry, full-log.
+**ත්‍යාග 199ක්, හැමෝම pass** (`python -m unittest discover -s tests`). අලුත් `tests/test_remembered.py` (skip/fail මතකය) + `tests/test_search_steps.py` (steps 27). `tests/test_batching.py` එකේ: 200 songs → batches [100, 100], batch size cap, duplicate skip, second run = 0 adds, dry-run, pending reconcile, 429 retry, full-log.
 
 ---
 
@@ -60,7 +60,7 @@ Links දාන්න ක්‍රම 2ක්:
 ```bash
 cd spotify-yt-playlist-sync
 python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v        # 186 tests
+.venv/bin/python -m unittest discover -s tests -v        # 199 tests
 
 export YOUTUBE_PLAYLIST='https://www.youtube.com/playlist?list=PL…'
 export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'

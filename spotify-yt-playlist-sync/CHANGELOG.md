@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-11-04 (two ways for videos whose title is not the song)
+
+A real run showed two kinds of upload the title cannot identify:
+
+* **`LINKED` (16)** - the uploader pasted the track into the description
+  (`open.spotify.com/track/<id>`). The track is read **directly** (one Web API call, no search) and the only
+  check left is the version: a `(Slowed)` video is refused a plain track and the other way round.
+* **`SONGTAG` (22)** - the title is marketing (`MONTAGEM MIAU 🔥`) and the song is named in the
+  description: `Song: …` / `Track: …`, `Artist: …`, YouTube's `♪ Song`, a quoted name, or the uploader's
+  hashtags and tags (`#MontagemMiau` → `Montagem Miau`, genre words skipped). The name is searched with
+  the stated artist (else the uploader) and must reach **0.90** title similarity, with the version and the
+  artist checks intact.
+
+Both are ordinary steps in the chain (nothing was removed), so `TOPRESULT` is still last - the chain is
+**27** steps. `youtube()` now also keeps `snippet.tags`, which the same API call already returns.
+
+`MATCHER_VERSION` is now **10** (remembered skips get one more try). Tests: **199**.
+
 ## 2026-11-04 (rate limit: fewer, slower, cached searches)
 
 The five new steps work, but each one can cost several searches, so a run is now careful with them:

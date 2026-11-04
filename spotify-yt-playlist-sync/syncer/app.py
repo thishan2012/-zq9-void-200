@@ -26,7 +26,7 @@ SEARCH_PAUSE_SECONDS = 0.5  # gap between two real searches (on top of REQUEST_D
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
-MATCHER_VERSION = 9  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 10  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -264,6 +264,10 @@ class Client:
                     video['title'] = snippet.get('title') or video['title']
                     video['channel'] = snippet.get('channelTitle') or video['channel']
                     video['description'] = snippet.get('description') or ''
+                    # Uploader tags are free evidence (same API call) for uploads
+                    # whose title is not the song name at all.
+                    tags = snippet.get('tags')
+                    video['tags'] = [tag for tag in tags if isinstance(tag, str)] if isinstance(tags, list) else []
                     content = item.get('contentDetails') or {}
                     if isinstance(content, dict):
                         video['duration_ms'] = youtube_duration_ms(content.get('duration'))
@@ -439,6 +443,34 @@ class Client:
                 result['album'] = album_name
             results.append(result)
         return results
+
+    def spotify_track(self, track_id, token):
+        """Read one track by ID (the Web API backend only).
+
+        Used when the video description links the track itself: the uploader has
+        already told us which recording it is, so no search is needed - only the
+        version check.
+        """
+        if self.spotify_backend != 'rest':
+            raise SyncError('Spotify track lookup needs the Web API backend')
+        if not re.fullmatch(r'[A-Za-z0-9]{22}', str(track_id or '')):
+            raise SyncError('Spotify track ID is invalid')
+        data = self.request('GET', f'https://api.spotify.com/v1/tracks/{track_id}',
+                            headers={'Authorization': f'Bearer {token}'}, proxy=True,
+                            label='Spotify track lookup')
+        if not isinstance(data, dict) or not isinstance(data.get('name'), str):
+            raise SyncError('Spotify track lookup returned an invalid response')
+        track = {'id': data.get('id') or track_id, 'name': data['name'],
+                 'artists': [{'name': name} for name in
+                             [((artist or {}).get('name')) for artist in (data.get('artists') or [])]
+                             if isinstance(name, str) and name.strip()]}
+        duration = data.get('duration_ms')
+        if isinstance(duration, (int, float)) and duration > 0:
+            track['duration_ms'] = duration
+        album = data.get('album')
+        if isinstance(album, dict) and isinstance(album.get('name'), str):
+            track['album'] = album['name']
+        return track
 
     def add(self, playlist, track, token):
         self.add_batch(playlist, [track], token)
@@ -720,6 +752,82 @@ def description_credit(title, description):
             if title_similarity(title, parts[1]) >= .85:
                 return parts[0].strip(), parts[1].strip()
     return None
+
+# A description often states the song and the artist on labelled lines:
+#   Song: MONTAGEM MIAU      Track - MONTAGEM MIAU      Artist: DJ NEO
+SONG_LABEL = re.compile(r'^\s*(?:song|track|title|music|audio)\s*[:\-–]\s*(.{2,120})$', re.I)
+ARTIST_LABEL = re.compile(r'^\s*(?:artist|artists|performed by|by)\s*[:\-–]\s*(.{2,120})$', re.I)
+QUOTED = re.compile(r'["“”\'‘’]([^"“”\'‘’]{3,90})["“”\'‘’]')
+MUSIC_NOTE = re.compile(r'^\s*[♪♫🎵🎶]+\s*(.{2,120})$')
+SPOTIFY_TRACK_LINK = re.compile(r'open\.spotify\.com/(?:intl-[A-Za-z-]+/)?track/([A-Za-z0-9]{22})')
+CAMEL_WORD = re.compile(r'(?<=[a-z])(?=[A-Z])')
+
+def description_lines(description, limit=20):
+    """The first few meaningful lines of a video description."""
+    return [' '.join(line.split()) for line in str(description or '').splitlines()
+            if line.strip()][:limit]
+
+def description_song(description):
+    """(song, artists) stated by the description itself, or None.
+
+    Deliberately independent of the video title: that is the whole point for
+    uploads whose title is marketing text ("MONTAGEM MIAU 🔥") while the song
+    name sits in the description ("Song: MONTAGEM MIAU / Artist: DJ NEO").
+    """
+    song, artists = '', []
+    for line in description_lines(description):
+        if len(line) > 200 or '://' in line:
+            continue
+        found = SONG_LABEL.match(line)
+        if found and normalized(found.group(1)):
+            song = found.group(1).strip()
+            continue
+        found = ARTIST_LABEL.match(line)
+        if found and normalized(found.group(1)):
+            artists = artist_candidates(found.group(1))
+            continue
+        found = MUSIC_NOTE.match(line)
+        if not song and found and normalized(found.group(1)):
+            song = found.group(1).strip()
+            continue
+        # "Song · Artist 1 · Artist 2": YouTube's autogenerated music description.
+        parts = [part.strip() for part in re.split(r'\s*[·•]\s*', line)]
+        if not song and len(parts) >= 2 and all(0 < len(part) <= 100 for part in parts):
+            if normalized(parts[0]) and not set(normalized(parts[0]).split()) <= TAG_WORDS:
+                song = parts[0]
+                artists = artists or [name for part in parts[1:] for name in artist_candidates(part)]
+    if not song:
+        # A quoted phrase is usually the song ("… the track \"MONTAGEM MIAU\"").
+        found = QUOTED.search(' '.join(description_lines(description, 6)))
+        if found and len(normalized(found.group(1)).split()) >= 2:
+            song = found.group(1).strip()
+    if not song:
+        return None
+    return song, artists
+
+def tag_songs(video):
+    """Song-like candidates from hashtags and the uploader's own tags."""
+    raw = []
+    for tag in video.get('tags') or []:
+        if isinstance(tag, str):
+            raw.append(tag)
+    for source in (video.get('title') or '', video.get('description') or ''):
+        for found in re.findall(r'#([^\s#,.]{3,60})', source):
+            raw.append(found)
+    songs, seen = [], set()
+    for text in raw:
+        # "#MontagemMiau" -> "Montagem Miau"
+        text = CAMEL_WORD.sub(' ', text.replace('_', ' ')).strip()
+        words = normalized(text).split()
+        if not words or set(words) <= (TAG_WORDS | MARKETING_WORDS):
+            continue
+        if len(words) < 2 and len(words[0]) < 6:
+            continue            # a one-word hashtag says nothing a search could use
+        if normalized(text) in seen:
+            continue
+        seen.add(normalized(text))
+        songs.append(text)
+    return songs[:8]
 
 def same_song_words(short, long):
     """True when a short title is the song half of a longer video title.
