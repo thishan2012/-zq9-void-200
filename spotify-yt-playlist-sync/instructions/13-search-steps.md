@@ -1,7 +1,7 @@
-# 🔎 13 — Extra search steps (16 වෙන වෙනම ක්‍රම)
+# 🔎 13 — Extra search steps (19 වෙන වෙනම ක්‍රම)
 
 මේ ගොනුව කියවන්නේ **"ඇයි මේ සින්දුව add වුණේ නැත්තේ?"** කියන ප්‍රශ්නයට උත්තර දෙන්න.
-පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 15 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
+පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 19 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
 හැම එකක්ම වෙන වෙනම කුඩා experiment එකක් — කැඩුණොත් අනිත් ඒවාට බලපෑමක් නෑ, අයින් කරන්නත් පුළුවන්.
 
 > 👉 ලොජික් එක තියෙන්නේ `syncer/search_steps.py` එකේ. ලැයිස්තුව බලන්න: `python -m syncer.app --steps`
@@ -26,7 +26,7 @@
 
 ---
 
-## 2. Steps 15
+## 2. Steps 19
 
 | # | Code | මොකද කරන්නේ | උදාහරණය |
 |---|---|---|---|
@@ -45,7 +45,10 @@
 | 13 | `WORDSET` | වචන එකම, පිළිවෙල වෙනස් | `Funk Midu Shange` ↔ `Midu Shange Funk` |
 | 14 | `SLOWED` | `"<song> slowed"` කියලා search — **slowed එකක් විතරයි** ගන්නේ | `FUNK ABNORMAL (SLOWED)` |
 | 15 | `UPLOADER` | uploader නම + title එක එකට search | `Slowed by X` channels |
-| 16 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
+| 16 | `ALBUM` | version/naming එක **album එකේ** තියෙනවා (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album එකේ | 
+| 17 | `PART` | Spotify එකේ `Pt. 1` / `Pt. 2` විදිහට කැඩිච්ච titles එකම සින්දුව විදිහට | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
+| 18 | `POPULAR` | එකම title එකේ matches කීපයක් → **වැඩිම play ගණන** ඇති එක (play ගණනක් නැත්නම්/සමාන නම් → තෝරන්නේ නෑ) | duplicate uploads |
+| 19 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
 
 **හැම step එකකුත් අන්තිමට artist conflict එක බලනවා** (`artist_ok()`): video එකේ title එකේ artist කෙනෙක් තියෙනවා නම්, Spotify track එකේ ඒ නම නැත්නම් → match එක අවිශ්වාසී, ඒ නිසා ගන්නේ නෑ.
 ඒකයි `DESTELLO - HDN` වගේ එකක් වෙන artist කෙනෙක්ගේ `HDN` එකට match වෙන්නේ නැත්තේ (Spotify එකේ DESTELLO නෑ නම් → skip).
@@ -71,7 +74,53 @@ Search query එකේ **මුලින්ම එන track එක** ගන්�
 | `MONTAGEM ZEPHYR (Slowed)` | `MONTAGEM ZEPHYR` (original) | ❌ version වෙනස් |
 | `DESTELLO - HDN` | `HDN` (වෙන artist) | ❌ artist conflict |
 
-⚠️ මේක **අන්තිම step එක** — අනිත් 15ම fail වුණාට පස්සේ විතරයි දුවන්නේ. `TOPRESULT` කියලා report එකේ පේනවා නම්, ඒ line එක දෙපාරක් බලන්න (Spotify link එක open කරලා) — වැරදි නම් `data/track-overrides.json` එකෙන් හදන්න.
+⚠️ මේක **අන්තිම step එක** — අනිත් 18ම fail වුණාට පස්සේ විතරයි දුවන්නේ. `TOPRESULT` කියලා report එකේ පේනවා නම්, ඒ line එක දෙපාරක් බලන්න (Spotify link එක open කරලා) — වැරදි නම් `data/track-overrides.json` එකෙන් හදන්න.
+
+---
+
+## 2c. `ALBUM` / `PART` / `POPULAR` — Spotify naming එකේ අවුල්
+
+Spotify එකේ track name එකයි YouTube title එකයි හැම වෙලාවෙම එකට ලියන්නේ නෑ:
+
+| YouTube title | Spotify | කලින් | දැන් |
+|---|---|---|---|
+| `FUNK TONTO (feat. Mc Ombrinho) [Slowed]` | track `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)`, album `FUNK TONTO (Slowed)` | skip | ✅ `ALBUM`+`PART` |
+| `X` (album `X - Single`) | `X` / `X (Slowed)` | skip | ✅ `ALBUM` |
+| `LUZ` | same title track 3ක් (duplicate uploads) | skip (ambiguous) | ✅ `POPULAR` (වැඩිම play) |
+
+* `ALBUM` — version වචන album එකේ තියෙනවා නම් ඒකත් සමඟ බලනවා (`version_signature` name + album මත).
+* `PART` — `, Pt. 2`, `(Pt. 1)` කපලා ඉතුරු නම සමානද බලනවා; **part number එක ගණන් ගන්නේ නෑ** (එකම සින්දුවේ කොටස්), ඒත් slowed/sped වෙනස එහෙමම බලනවා.
+* `POPULAR` — **අන්තිම tie-break එක**: එකම (title, artists) ඇති results කීපයක් ආවොත් වැඩිම playcount එක ගන්නවා. Play ගණනක් නැත්නම් හෝ ගණන සමාන නම් → **තෝරන්නේ නෑ** (අහඹුවට ගන්නේ නෑ). Title එක නොගැලපෙන එකක් popularity එකෙන් ගන්නේ නෑ.
+
+---
+
+## 2d. `--explain` — skip වුණ සින්දුවක් ඇයි skip වුණේ
+
+Actions log එකේ බැලුවට වඩා පහසුවෙන්: **ඔබේ computer එකේ** (Actions එකේ නෙවෙයි) මේක දුවන්න —
+
+```bash
+cd spotify-yt-playlist-sync
+export SPOTIFY_COOKIE_FILE=~/cookies/sp_dc.txt
+.venv/bin/python -m syncer.app --explain
+```
+
+එකින් එක skip වුණ සින්දුවකට මේක print වෙනවා:
+
+```
+MONTAGEM RUNE - WUYS x KIT   (youtu.be/aLZNbOUOyI4)
+  parsed as: ('WUYS', 'MONTAGEM RUNE x KIT')
+  STRICT   → (no results)
+  LOOSE    → MONTAGEM RUNE — WUYS, KIT
+  CHANNEL  q='WUYS MONTAGEM RUNE'   → MONTAGEM RUNE — WUYS | MONTAGEM RUNE (Slowed) — WUYS
+  verdict: MATCH LOOSE
+```
+
+* ලියන්නේ **මුල් 25** skip වුණ සින්දු විතරයි.
+* මේකෙන් **Spotify එකට මොකුත් add වෙන්නේ නෑ, database එකත් වෙනස් වෙන්නේ නෑ** (read-only).
+* Search කරන නිසා `SPOTIFY_COOKIE_FILE` ඕන. Cookie නැත්නම් `Could not start a Spotify session: …` කියලා නවතිනවා — steps දුවන්න cookie ඕන.
+* `verdict: MATCH <STEP>` කියලා එනවා නම් ඒ සින්දුව Spotify එකේ **ඇති**, ඒත් run එකේදී **ඒ step එක දුවලා නෑ** (හෝ ඒ වෙලාවේ search result වෙනස්) — එහෙම එකක් එවන්න, ඒ step එක හදන්න.
+* `verdict: still no match` නම් Spotify results වලට ගැලපෙන එකක් නෑ — ඒ පේළියේ පේන `q=` query එකෙන් ඒ නම Spotify එකේ search කරලා බලන්න.
+* ඊට කලින් run එකක් `--save-explain` එකෙන් run කරලා නම්, database එකේ ඒ results තියෙනවා → `--explain` ආයේ search නොකර ඒවා පෙන්නනවා.
 
 ---
 
@@ -135,7 +184,7 @@ class MyStep(Step):
 
 ## 6. පොදු ප්‍රශ්න
 
-**Q. Steps 15ම හැම සින්දුවකටම දුවනවද?**
+**Q. Steps 19ම හැම සින්දුවකටම දුවනවද?**
 නෑ. `applies()` එකෙන් අදාළ නැති ඒවා මුලින්ම අයින් වෙනවා (උදා: `REVERSED` දුවන්නේ artist credit එකේ `x`/`,` තියෙන සින්දුවලට විතරයි).
 Match නොවුණු සින්දුවකට steps 8–11ක් විතරයි දුවන්නේ, එකකට search 1–3ක්.
 

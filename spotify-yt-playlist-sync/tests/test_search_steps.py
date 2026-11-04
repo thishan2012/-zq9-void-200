@@ -182,6 +182,47 @@ class WordSetStepTests(StepTestCase):
         self.assertEqual(found['id'], 't1')
 
 
+class AlbumAwareStepTests(StepTestCase):
+    def test_the_slowed_edit_living_on_a_slowed_album_wins(self):
+        video_item = video('MONTAGEM ZEPHYR (Slowed)')
+        catalog = Catalog([track('plain', 'Montagem Zephyr', 'X'),
+                           dict(track('slowed', 'Montagem Zephyr - Slowed', 'X'), album='Slowed Hits')])
+        found, _ = self.run_step(search_steps.AlbumAwareStep, video_item, catalog)
+        self.assertEqual(found['id'], 'slowed')
+
+
+class PartSuffixStepTests(StepTestCase):
+    def test_pt_2_is_the_same_song(self):
+        video_item = video('FUNK TONTO (feat. Mc Ombrinho) [Slowed]')
+        # Spotify splits feat. tracks into "Pt. 2" releases.
+        catalog = Catalog([dict(track('pt2', 'FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)', 'Mc Ombrinho'),
+                                album='FUNK TONTO (Slowed)')])
+        found, _ = self.run_step(search_steps.PartSuffixStep, video_item, catalog)
+        self.assertEqual(found['id'], 'pt2')
+
+    def test_a_different_number_is_still_a_different_song(self):
+        video_item = video('MONTAGEM ZEPHYR')
+        catalog = Catalog([track('other', 'MONTAGEM NEBULA, Pt. 2', 'X')])
+        found, _ = self.run_step(search_steps.PartSuffixStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
+class PopularRankStepTests(StepTestCase):
+    def test_the_most_played_of_two_equal_titles_wins(self):
+        video_item = video('MONTAGEM ZEPHYR')
+        catalog = Catalog([dict(track('a', 'MONTAGEM ZEPHYR', 'X'), popularity=900),
+                           dict(track('b', 'MONTAGEM ZEPHYR', 'X'), popularity=940000)])
+        found, _ = self.run_step(search_steps.PopularRankStep, video_item, catalog)
+        self.assertEqual(found['id'], 'b')
+
+    def test_a_tie_stays_a_skip(self):
+        video_item = video('MONTAGEM ZEPHYR')
+        catalog = Catalog([dict(track('a', 'MONTAGEM ZEPHYR', 'X'), popularity=500),
+                           dict(track('b', 'MONTAGEM ZEPHYR', 'X'), popularity=500)])
+        found, _ = self.run_step(search_steps.PopularRankStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
 class TopResultStepTests(StepTestCase):
     """The last resort: the first result, but only when it really is the song."""
 
@@ -220,6 +261,69 @@ class TopResultStepTests(StepTestCase):
         self.assertIs(search_steps.STEPS[-1], search_steps.TopResultStep)
 
 
+class ExplainTests(unittest.TestCase):
+    """--explain must say what Spotify returned for a skipped song."""
+
+    def test_explain_prints_the_songs_and_its_results(self):
+        import contextlib, io, json, os
+        state = {'version': 1, 'playlists': {'pl': {'videos': {}, 'pending': None, 'skipped': {
+            'VIDEOID0001': {'title': 'MONTAGEM RUNE - WUYS x KIT', 'channel': 'U'}}}}}
+        catalog = Catalog([track('t1', 'MONTAGEM RUNE', 'WUYS')])
+
+        class FakeClient(Catalog):
+            def token(self, cookie):
+                return 'token'
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        path = Path(tmp.name) / 'state.json'
+        path.write_text(json.dumps(state), encoding='utf-8')
+        buf = io.StringIO()
+        with patch.object(app, 'STATE_PATH', path), patch.object(app, 'Client', lambda delay: FakeClient(catalog.tracks)), \
+             patch.object(app, 'sp_dc_from_file', return_value='cookie'), \
+             patch.dict(os.environ, {'REQUEST_DELAY_SECONDS': '0'}), contextlib.redirect_stdout(buf):
+            self.assertEqual(app.explain(), 0)
+        text = buf.getvalue()
+        self.assertIn('MONTAGEM RUNE - WUYS x KIT', text)
+        self.assertIn('parsed as:', text)
+        self.assertIn('verdict:', text)
+
+    def test_explain_without_skips_says_so(self):
+        import contextlib, io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(app.explain(state={'version': 1, 'playlists': {}}), 0)
+        self.assertIn('No remembered skips', buf.getvalue())
+
+
+class SavedEvidenceTests(unittest.TestCase):
+    """--save-explain: a dry run keeps what Spotify said, and --explain reuses it."""
+
+    def test_a_skipped_song_is_remembered_and_explained_without_searching(self):
+        import contextlib, io
+        video_item = {'id': 'VIDEOID0001', 'title': 'MONTAGEM ZEPHYR - X x Y',
+                      'channel': 'Uploader', 'description': ''}
+        catalog = Catalog([track('other', 'SOMETHING ELSE', 'Z')])
+        catalog.keep_evidence = True
+        state = {'version': 1, 'playlists': {}}
+        counts = {'add': 0, 'skip': 0, 'fail': 0}
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with patch.object(app, 'STATE_PATH', Path(tmp.name) / 'state.json'):
+            app.sync(catalog, [video_item], 'pl', 'token', state, True, counts, issues=[])
+        self.assertEqual(counts['skip'], 1)
+        self.assertIn('VIDEOID0001', state['evidence'])
+
+        # --explain now prints the saved attempts and never searches Spotify.
+        catalog.queries.clear()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(app.explain(state=state), 0)
+        self.assertEqual(catalog.search_calls(), 0)
+        self.assertIn('MONTAGEM ZEPHYR - X x Y', buf.getvalue())
+        self.assertIn('still no match', buf.getvalue())
+
+
 class StepChainTests(unittest.TestCase):
     def test_steps_are_skipped_when_they_do_not_apply(self):
         video_item = video('Artist - Song')
@@ -256,7 +360,7 @@ class StepChainTests(unittest.TestCase):
     def test_every_step_has_a_unique_code_and_a_title(self):
         codes = [step.code for step in search_steps.STEPS]
         self.assertEqual(len(codes), len(set(codes)))
-        self.assertGreaterEqual(len(codes), 16)
+        self.assertGreaterEqual(len(codes), 19)
         for step in search_steps.STEPS:
             self.assertTrue(step.title, step.code)
 
