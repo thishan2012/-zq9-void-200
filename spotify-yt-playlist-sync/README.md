@@ -135,7 +135,7 @@ export YOUTUBE_API_KEY='…'
 # optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SPOTIFY_BATCH_SIZE
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
 .venv/bin/python -m syncer.app --explain     # why were the skipped songs skipped? (read-only)
-.venv/bin/python -m unittest discover -s tests -v   # 131 tests
+.venv/bin/python -m unittest discover -s tests -v   # 132 tests
 ```
 
 `--explain` searches every remembered skip once more and prints, per song, what `STRICT`/`LOOSE` and each

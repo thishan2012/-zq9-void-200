@@ -296,6 +296,34 @@ class ExplainTests(unittest.TestCase):
         self.assertIn('No remembered skips', buf.getvalue())
 
 
+class SavedEvidenceTests(unittest.TestCase):
+    """--save-explain: a dry run keeps what Spotify said, and --explain reuses it."""
+
+    def test_a_skipped_song_is_remembered_and_explained_without_searching(self):
+        import contextlib, io
+        video_item = {'id': 'VIDEOID0001', 'title': 'MONTAGEM ZEPHYR - X x Y',
+                      'channel': 'Uploader', 'description': ''}
+        catalog = Catalog([track('other', 'SOMETHING ELSE', 'Z')])
+        catalog.keep_evidence = True
+        state = {'version': 1, 'playlists': {}}
+        counts = {'add': 0, 'skip': 0, 'fail': 0}
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        with patch.object(app, 'STATE_PATH', Path(tmp.name) / 'state.json'):
+            app.sync(catalog, [video_item], 'pl', 'token', state, True, counts, issues=[])
+        self.assertEqual(counts['skip'], 1)
+        self.assertIn('VIDEOID0001', state['evidence'])
+
+        # --explain now prints the saved attempts and never searches Spotify.
+        catalog.queries.clear()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.assertEqual(app.explain(state=state), 0)
+        self.assertEqual(catalog.search_calls(), 0)
+        self.assertIn('MONTAGEM ZEPHYR - X x Y', buf.getvalue())
+        self.assertIn('still no match', buf.getvalue())
+
+
 class StepChainTests(unittest.TestCase):
     def test_steps_are_skipped_when_they_do_not_apply(self):
         video_item = video('Artist - Song')

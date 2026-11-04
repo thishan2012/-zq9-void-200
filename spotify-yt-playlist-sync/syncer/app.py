@@ -1509,16 +1509,19 @@ def explain(state=None, limit=25):
     if not rows:
         print('No remembered skips: every song was added, or nothing has run yet.')
         return 0
-    client = Client(float(os.environ.get('REQUEST_DELAY_SECONDS', '1') or 1))
-    client.keep_evidence = True
-    try:
-        client.spotify_backend = 'web-player'
-        cookie = sp_dc_from_file(os.environ.get('SPOTIFY_COOKIE_FILE', 'cookies/spotify.txt'))
-        token = client.token(cookie)
-    except (FatalError, ValueError, OSError) as exc:
-        print(f'Could not start a Spotify session: {exc}')
-        return 1
     saved = state.get('evidence') if isinstance(state.get('evidence'), dict) else {}
+    # A saved --save-explain run can answer without touching Spotify at all.
+    client, token = None, None
+    if any(video_id not in saved for _, video_id, _, _ in rows):
+        client = Client(float(os.environ.get('REQUEST_DELAY_SECONDS', '1') or 1))
+        client.keep_evidence = True
+        try:
+            client.spotify_backend = 'web-player'
+            cookie = sp_dc_from_file(os.environ.get('SPOTIFY_COOKIE_FILE', 'cookies/spotify.txt'))
+            token = client.token(cookie)
+        except (FatalError, ValueError, OSError) as exc:
+            print(f'Could not start a Spotify session: {exc}')
+            return 1
     printed = 0
     for playlist, video_id, title, channel in rows:
         if printed >= limit:
