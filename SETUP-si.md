@@ -53,7 +53,7 @@ Links දාන්න ක්‍රම 2ක්:
 
 1. **Settings → Actions → General → Workflow permissions → Read and write permissions** (bot එකට state file commit කරන්න ඕන නිසා).
 2. Schedule එක දුවන්නේ **default branch** එකෙන්. ඒ නිසා workflow + secrets + `data/sync-state.json` default branch එකේ තියෙන්න ඕන.
-3. `0 */4 * * *` = **දවසට 6** (05:30, 09:30, 13:30, 17:30, 21:30, 01:30 — Sri Lanka). Public repo නිසා minutes limit නෑ. වෙනස් කරන්න ඕන නම් cron line එක edit කරන්න — **UTC** වලින්. Scheduled runs default එකෙන්ම dry run; ඇත්තට ඕන නම් variable `SYNC_ENABLED=true`. **60-day rule:** public repo එකක activity නැතුව දවස් 60ක් ගියොත් GitHub schedule එක **silently disable** කරනවා — ඒ නිසා හැම මාසෙම 1 වෙනිදා එන run එක `Keep the schedule alive (monthly heartbeat)` කියලා commit එකක් දානවා (DB වෙනසක් නැතත්).
+3. `0 */6 * * *` = **දවසට 4** (05:30, 11:30, 17:30, 23:30 — Sri Lanka). Public repo නිසා minutes limit නෑ. වෙනස් කරන්න ඕන නම් cron line එක edit කරන්න — **UTC** වලින්. Scheduled runs default එකෙන්ම dry run; ඇත්තට ඕන නම් variable `SYNC_ENABLED=true`. **60-day rule:** public repo එකක activity නැතුව දවස් 60ක් ගියොත් GitHub schedule එක **silently disable** කරනවා — ඒ නිසා හැම මාසෙම 1 වෙනිදා එන run එක `Keep the schedule alive (monthly heartbeat)` කියලා commit එකක් දානවා (DB වෙනසක් නැතත්).
 4. **Actions → YouTube to Spotify sync → Run workflow** → `dry_run` ✅ තියලා එක පාරක් දුවන්න. Telegram full log එක බලලා match වැරදි නම් `data/track-overrides.json` එකට manual mapping දාන්න. හරි නම් `dry_run` ❌ කරලා ආයේ දුවන්න.
 
 200 සින්දුවක playlist එකකට ~5–10 min (delay නිසා). Job timeout 180 min නිසා ප්‍රශ්නයක් නෑ.

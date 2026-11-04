@@ -49,7 +49,7 @@ Log එකේ `STRICT / LOOSE / DETAIL / SKIP` බලන්න. වැරදි 
 
 ## 6. පස්සේ
 
-- දවසට 6 පාර ඔටෝ: `0 */4 * * *` UTC = **05:30 / 09:30 / 13:30 / 17:30 / 21:30 / 01:30** (Sri Lanka) — `SYNC_ENABLED=true` දැම්මම විතරයි write වෙන්නේ
+- දවසට 4 පාර ඔටෝ: `0 */6 * * *` UTC = **05:30 / 11:30 / 17:30 / 23:30** (Sri Lanka) — `SYNC_ENABLED=true` දැම්මම විතරයි write වෙන්නේ
 - Error එකක්: [`07-troubleshooting.md`](07-troubleshooting.md)
 - Cookie expire: [`09-recovery-and-maintenance.md`](09-recovery-and-maintenance.md)
 

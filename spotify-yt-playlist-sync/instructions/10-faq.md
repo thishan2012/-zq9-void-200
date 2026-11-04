@@ -22,7 +22,7 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 ඔව් — `data/sync-state.json` (video ID → Spotify track ID). Live run එකක් ඉවර වෙද්දී bot එක ඒක commit කරනවා. ඒක තමයි "එකම සින්දුව ආයේ add නොවෙන්න" කියන එකේ ප්‍රධාන ආරක්ෂාව. බලන්න: Job summary එකේ `🗄️ Database` table, `python -m syncer.app --db-summary`, හෝ Telegram full log එකේ ADD lines.
 
 **Q. දවසට කී පාරක් දුවනවද?**
-`0 */4 * * *` = **දවසට 6** (හැම 4 පැයකට). Public repo නිසා minutes limit නෑ. Scheduled runs dry run — ඇත්තට ඕන නම් `SYNC_ENABLED=true`.
+`0 */6 * * *` = **දවසට 4** (හැම 6 පැයකට). Public repo නිසා minutes limit නෑ. Scheduled runs dry run — ඇත්තට ඕන නම් `SYNC_ENABLED=true`.
 
 **60-day disable:** public repo එකක commit/PR වගේ **activity නැතුව දවස් 60ක්** ගියොත් GitHub schedule එක *"This scheduled workflow is disabled because there hasn't been activity in this repository"* කියලා **auto-disable** කරනවා (Actions tab එකේ **Enable workflow** button එකකුත් එනවා). අපේ repo එකේ අලුත් සින්දු නැති මාසෙක DB commit එකක් එන්නෙ නෑ — ඒ නිසා හැම මාසෙම **1 වෙනිදා** එන run එක `Keep the schedule alive (monthly heartbeat)` empty commit එකක් දාලා clock එක reset කරනවා. ඒක නැති වුණොත් (~මාස 2ක් repo එක නිශ්ශබ්ද නම්) **Enable workflow** එබන්න වෙනවා.
 
@@ -33,7 +33,7 @@ Delay 2s + search ≈ 5–10 min. Job timeout 180 min. GitHub Actions minutes (p
 ඔව්, ඒක හිතාමතාම. ඒ සින්දු database එකේ save වෙනවා (ආයේ search කරන්නේ නෑ), ඒත් message එකක් එවන්නේ නෑ, `Skipped` ගණනටවත් එන්නේ නෑ.
 **Add නොවුණු නියම හේතු** තියෙන ඒවා (`No confident artist/title/version match`, `Unavailable…`, `FAIL`) විස්තර සහිතව එනවා 👍
 
-**Q. එකම "No confident match" සින්දුව හැම run එකකම එනවා 😅 — 6 runs/day × එකම 5 songs?**
+**Q. එකම "No confident match" සින්දුව හැම run එකකම එනවා 😅 — 4 runs/day × එකම 5 songs?**
 ඒක දැන් නවත්තලා. Skip එකක් **එක පාරයි** log වෙන්නේ; ඒ video ID එක `data/sync-state.json` එකේ `skipped` යටතේ save වෙනවා → ඊට පස්සේ search එකක්වත්, Telegram message එකක්වත් නෑ.
 FAIL වුණු ඒවා **දෙපාරක්** log වෙලා, ඊට පස්සේ `failures` = 2 නිසා silent (retry කරන්නේත් නෑ).
 ආයේ try කරන්න ඕන නම් ඒ entry එක අයින් කරන්න (හෝ manual override එකක් දාන්න) — [09](09-recovery-and-maintenance.md#1c-එකම-සින්දුව-ආයේ-log-වෙනවා-නම්).

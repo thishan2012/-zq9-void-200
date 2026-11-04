@@ -31,10 +31,10 @@ name: YouTube to Spotify sync
 
 on:
   schedule:
-    # 6 runs a day, every 4 hours (UTC). Public repos have unlimited Actions
-    # minutes, so 6 short runs cost nothing; a run with no new songs is quick
+    # 4 runs a day, every 6 hours (UTC). Public repos have unlimited Actions
+    # minutes, so the runs cost nothing; a run with no new songs is quick
     # because already-recorded videos are skipped without any Spotify search.
-    #   00, 04, 08, 12, 16, 20 UTC = 05:30, 09:30, 13:30, 17:30, 21:30, 01:30 (SL)
+    #   00, 06, 12, 18 UTC = 05:30, 11:30, 17:30, 23:30 (SL)
     # GitHub cron is UTC only and may be delayed.
     # Scheduled runs are DRY RUNS unless the repository variable SYNC_ENABLED
     # is set to 'true'.
@@ -42,7 +42,7 @@ on:
     # and "nothing new to sync" is this repository's normal state, so the
     # database step leaves one empty commit on the 1st of each month to keep
     # the clock reset. See "Save sync database" below.
-    - cron: '0 */4 * * *'
+    - cron: '0 */6 * * *'
     # Weekly retry (Sunday 03:00 UTC = 08:30 SL). Only this run re-asks about
     # songs that were skipped more than RETRY_AFTER_DAYS (7) days ago, so a track
     # that came back to Spotify or a video that turned public is found again
@@ -237,7 +237,7 @@ jobs:
           # repository that is quiet for 60 days has its schedules switched off
           # by GitHub, silently: nothing new to sync is exactly the normal state
           # of this repository, so the clock would run out on its own.
-          # At most one per month: the six runs of the first day would otherwise
+          # At most one per month: the four runs of the first day would otherwise
           # all leave a commit.
           HEARTBEAT_MSG='Keep the schedule alive (monthly heartbeat)'
           HEARTBEAT=

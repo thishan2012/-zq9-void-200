@@ -39,7 +39,7 @@ SPOTIFY_PLAYLIST: ${{ secrets.SPOTIFY_PLAYLIST || vars.SPOTIFY_PLAYLIST || 'http
 |---|---|---|
 | `REQUEST_DELAY_SECONDS` | `2` | හැම request එකට කලින් delay (0–60). Rate limit වලට |
 | `SPOTIFY_BATCH_SIZE` | `100` | එක add request එකකට tracks (1–100) |
-| `SYNC_ENABLED` | *(unset)* | `true` = scheduled runs (දවසට 6) ඇත්තටම write කරයි; unset = dry run |
+| `SYNC_ENABLED` | *(unset)* | `true` = scheduled runs (දවසට 4) ඇත්තටම write කරයි; unset = dry run |
 
 මේවා **secret එකක් නෙවෙයි** — Variables tab එකට දාන්න:
 **Settings → Secrets and variables → Actions → Variables → New repository variable**
