@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-11-04 (latest)
+
+### A song is reported at most twice, then remembered in the database
+
+* **Skips are remembered.** `No confident artist/title/version match`, `Unavailable or missing video title`
+  and `Same track already planned in this run` are reported **once**; the video ID is then stored in
+  `data/sync-state.json` under `skipped` (title + channel only). Every later run: no Spotify search, no
+  Telegram message, no `Skipped` count.
+* **Failures are remembered too.** `failures[video_id]` counts failed attempts (`MAX_REPORTED_FAILURES = 2`).
+  The first failure is reported with `… (this will be logged once more, then go quiet)`, the second with
+  `… (last time logged; retried silently from now on)`. After two failures the song is not retried and not
+  reported at all. A successful add clears the counter.
+* Two runs a day with 5 unmatched songs therefore produce 5 lines **once**, not 30 lines a day.
+* **Manual override wins:** a mapping in `data/track-overrides.json` is honoured even for a remembered
+  skip or a retired failure, so the way back is one file edit.
+* **Dry runs remember too.** Add results are still never written in a dry run, but the `skipped` /
+  `failures` bookkeeping is saved (`save_deferred()`), and the workflow commits it
+  (`Update skip/failure bookkeeping (dry run)`). Without this every dry run re-logged the same songs.
+* Job summary now shows `Saved songs | Skipped (not retried) | Failed (retried) | Pending`;
+  `--db-summary` prints the same table and never lists song titles.
+* **`matcher` version in the database.** When the matching rules change, `MATCHER_VERSION` is bumped and
+  every remembered skip is cleared once, so a better pattern gets a fair second chance instead of being
+  hidden forever.
+
 ## 2026-11-04 (later)
 
 ### Already-synced songs are database-only

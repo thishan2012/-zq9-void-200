@@ -3,13 +3,19 @@ name: YouTube to Spotify sync
 # One-way sync: a public/unlisted YouTube playlist is the source of truth and
 # tracks are only ever ADDED to the Spotify playlist. Nothing is deleted.
 #
-# Sources of configuration (secrets are never written into this file):
+# Reference copy. GitHub only reads .github/workflows/ at the repository root,
+# so the workflow that really runs is the root copy; this file is here for
+# reading inside the project folder. Keep the two in sync if you edit them.
+#
+# Configuration (no secret values are ever written into this file):
 #   secrets.YOUTUBE_API_KEY        YouTube Data API v3 key (read-only usage)
 #   secrets.SPOTIFY_COOKIE         Netscape cookie export containing sp_dc
 #   secrets.TELEGRAM_BOT_TOKEN     Telegram bot token (optional, full log)
 #   secrets.TELEGRAM_CHAT_ID       Telegram chat id (optional, full log)
-#   vars.YOUTUBE_PLAYLIST          source playlist URL (optional override)
-#   vars.SPOTIFY_PLAYLIST          destination playlist URL (optional override)
+#   YOUTUBE_PLAYLIST / SPOTIFY_PLAYLIST  secrets, else variables
+#   vars.REQUEST_DELAY_SECONDS     optional, default 2 s
+#   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
+#   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
 
 on:
   schedule:
@@ -24,10 +30,10 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Preview only (no Spotify writes, no database changes)'
+        description: 'Dry run - preview only (no Spotify writes, no database changes)'
         type: boolean
         default: true
-        required: true
+        required: false
 permissions:
   contents: write
 concurrency:
@@ -37,6 +43,14 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: spotify-yt-playlist-sync
+    env:
+      # One switch for "really write", evaluated once:
+      #   manual run      -> honour the dry_run checkbox (checked = preview)
+      #   scheduled run   -> dry run unless SYNC_ENABLED == 'true'
+      DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) || (github.event_name == 'schedule' && vars.SYNC_ENABLED != 'true') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +59,8 @@ jobs:
           python-version: '3.11'
           cache: pip
 
-      - run: pip install -r requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       # The cookie is an account credential, so it never lives in the repository.
       # It is written to a git-ignored file just for this job.
@@ -54,13 +69,13 @@ jobs:
           SPOTIFY_COOKIE: ${{ secrets.SPOTIFY_COOKIE }}
         run: |
           if [ -z "$SPOTIFY_COOKIE" ]; then
-            echo '::error::Repository secret SPOTIFY_COOKIE is not set (see instructions/spotify.md)'
+            echo '::error::Repository secret SPOTIFY_COOKIE is not set (see instructions/03-spotify.md)'
             exit 1
           fi
           umask 077
           printf '%s\n' "$SPOTIFY_COOKIE" > cookies/spotify.txt
 
-      - name: Sync playlists
+      - name: Sync playlists (dry run unless DRY_RUN=false)
         id: sync
         env:
           # Secrets win over variables, so the links may live in either tab.
@@ -72,20 +87,55 @@ jobs:
           # Optional tuning; also accepted from the Secrets tab by mistake.
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
-          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
+          echo "::notice::Dry run = $DRY_RUN"
           if [ "$DRY_RUN" = "true" ]; then
             python -m syncer.app --dry-run
           else
             python -m syncer.app
           fi
 
+      # The database that stops duplicates. Its summary is printed on the run
+      # page so the saved songs are visible without cloning the repository.
+      - name: Show the sync database
+        if: ${{ always() && steps.sync.outcome != 'skipped' }}
+        run: python -m syncer.app --db-summary >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Job summary
+        if: ${{ always() && steps.sync.outcome != 'skipped' }}
+        env:
+          REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
+          SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
+          SYNC_ENABLED: ${{ vars.SYNC_ENABLED }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            MODE='DRY RUN — Spotify untouched (only skip/failure bookkeeping is saved)'
+          else
+            MODE='LIVE SYNC — tracks added, database committed'
+          fi
+          {
+            echo "### YouTube → Spotify: $MODE"
+            echo
+            echo "| Setting | Value |"
+            echo "|---|---|"
+            echo "| Trigger | \`${{ github.event_name }}\` |"
+            echo "| Dry run | \`$DRY_RUN\` |"
+            echo "| Scheduled writes enabled | \`${SYNC_ENABLED:-false}\` |"
+            echo "| Request delay | \`$REQUEST_DELAY_SECONDS\` s |"
+            echo "| Batch size | \`$SPOTIFY_BATCH_SIZE\` |"
+            echo
+            echo 'Per-song detail (ADD / WOULD ADD / SKIP / FAIL) is in the "Sync playlists" log above and in the Telegram full log.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Remove cookie file
         if: ${{ always() }}
         run: rm -f cookies/spotify.txt
 
+      # Saved in dry runs too: the bookkeeping of songs that were reported with
+      # a real reason (so they are not logged again). Podcast/YouTube reads are
+      # free; only Spotify writes are skipped in a dry run.
       - name: Save sync database
-        if: ${{ always() && steps.sync.outcome != 'skipped' && !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+        if: ${{ always() && steps.sync.outcome != 'skipped' }}
         run: |
           if git diff --quiet -- data/sync-state.json; then
             echo 'No database changes.'
@@ -94,5 +144,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/sync-state.json
-          git commit -m 'Update playlist sync state'
+          if [ "$DRY_RUN" = "true" ]; then
+            git commit -m 'Update skip/failure bookkeeping (dry run)'
+          else
+            git commit -m 'Update playlist sync state'
+          fi
           git push origin "HEAD:${GITHUB_REF_NAME}"

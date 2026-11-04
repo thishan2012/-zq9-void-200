@@ -24,17 +24,19 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 ```text
 [1] Summary  ← "Skipped" ගණන මෙතනින් explain වෙනවා
     YouTube → Spotify DRY RUN: SUCCESS
-    Would add: 36 | Skipped: 130 | Failed: 0
+    Would add: 36 | Skipped: 5 | Failed: 0
 
-
-    Songs that need a look:
+    Why songs were skipped:
       • 5 × No confident artist/title/version match
+
+    Per-song details follow.
+    Full log: the Actions run log.
 
 [2..6] Per-song log (compact, 1 line per song)
     YouTube → Spotify log (DRY RUN): 36 song(s) to report
 
     #1 SKIP: Artist - Song — youtu.be/xxxxxxxxxxx · No confident artist/title/version match
-    #131 WOULD ADD: Artist - Song — youtu.be/xxxxxxxxxxx · STRICT · open.spotify.com/track/…
+    #6 WOULD ADD: Artist - Song — youtu.be/xxxxxxxxxxx · STRICT · open.spotify.com/track/…
 ```
 
 | රීතිය | අගය |
@@ -43,7 +45,9 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 | Message එකක size | 4000 UTF-16 units (හැම message එකක්ම message boundary එකෙන් pack — සින්දුවක් මැදින් කැපෙන්නේ නෑ) |
 | 6ට වඩා ඕන නම් | අන්තිම message එකේ `… N more message(s) omitted…` — විස්තර Actions log එකේ |
 | Already synced / already in playlist / duplicate video | **skip ගොඩටවත්, log එකටවත් නෑ** — DB එකේ save විතරයි (ගණනෙත් නෑ) |
-| No confident match / unavailable / same-track-in-run / FAIL | හැම එකක්ම, link + හේතුව සමඟ |
+| No confident match / unavailable / same-track-in-run | **එක පාරයි** (link + හේතුව), ඊට පස්සේ DB එකේ `skipped` නිසා silent |
+| FAIL | **දෙපාරක්** (`… logged once more, then go quiet` → `… last time logged`), ඊට පස්සේ silent |
+| මේ පාර skip/fail වුණු එකක් ආයේ log වෙනවද? | **නෑ** — `data/sync-state.json` එකේ `skipped` / `failures` එකෙන් මතක තියාගන්නවා ([09](09-recovery-and-maintenance.md#1c-එකම-සින්දුව-ආයේ-log-වෙනවා-නම්)) |
 
 උදා: 200-song playlist එකක dry run එකකදී **2–3 messages** (කලින් 14). සම්පූර්ණයෙන්ම අලුත් සින්දු 200ක් නම් **6**.
 

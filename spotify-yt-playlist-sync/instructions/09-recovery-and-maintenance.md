@@ -30,18 +30,47 @@ Database එක = **`data/sync-state.json`**.
 
 | කොහෙන්ද | කොහොමද |
 |---|---|
-| GitHub run page | හැම run එකකම **Job summary** එකේ `🗄️ Database` table එක (playlist / saved songs / pending) |
+| GitHub run page | හැම run එකකම **Job summary** එකේ `🗄️ Database` table එක (playlist / saved songs / **skipped** / **failed** / pending) |
 | Actions log | `INFO ADD <video> -> <track>` line එකක් හැම add එකකටම |
 | Telegram full log | `#1 ADD: …` + `Spotify: https://open.spotify.com/track/…` |
 | Local | `python -m syncer.app --db-summary` |
 | Raw file | `data/sync-state.json` → `playlists.<id>.videos` |
 
-⚠️ **Dry run එකේදී save වෙන්නේ නෑ** — `WOULD ADD` විතරයි. Save වෙන්නේ live run එකේදී විතරයි (bot commit එකෙන්).
+⚠️ **Dry run එකේදී add වුණු සින්දු save වෙන්නේ නෑ** — `WOULD ADD` විතරයි. Save වෙන්නේ live run එකේදී විතරයි (bot commit එකෙන්).
+ඒත් **skip/fail bookkeeping** (`skipped`, `failures`) dry run එකේදීත් save වෙනවා — එකම සින්දුව හැම run එකකම log නොවෙන්න.
+
+### 1c. එකම සින්දුව ආයේ log වෙනවා නම්
+
+| DB key | තේරුම | නැවත try කරන්න ඕන නම් |
+|---|---|---|
+| `skipped` | skip වුණා (හේතුවක් එක්ක), ආයේ search නෑ | entry එක delete කරන්න, නැත්නම් `data/track-overrides.json` එකට manual mapping දාන්න |
+| `failures` | FAIL වුණු ගණන (`2` = retired) | entry එක delete කරන්න, නැත්නම් override එකක් දාන්න |
+
+```bash
+# එක සින්දුවක් ආයේ try කරන්න
+python - <<'EOF'
+import json, pathlib
+p = pathlib.Path('data/sync-state.json'); d = json.loads(p.read_text())
+for db in d['playlists'].values():
+    db.get('skipped', {}).pop('aLZNbOUOyI4', None)
+    db.get('failures', {}).pop('aLZNbOUOyI4', None)
+p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + '\n')
+EOF
+
+# හැම skip එකක්ම ආයේ try කරන්න (සම්පූර්ණ reset)
+python - <<'EOF'
+import json, pathlib
+p = pathlib.Path('data/sync-state.json'); d = json.loads(p.read_text())
+for db in d['playlists'].values():
+    db['skipped'] = {}; db['failures'] = {}
+p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + '\n')
+EOF
+```
 
 ## 2. එක සින්දුවක් ආයේ sync කරන්න
 
 `data/sync-state.json` එකේ `videos` එකෙන් ඒ video ID entry එක delete කරලා run කරන්න.
-(Spotify එකේ තියෙනවා නම් code එක `Track already in Spotify playlist` කියලා skip කරයි — duplicate නෑ.)
+(Spotify එකේ තියෙනවා නම් code එක ඒක silent එකේ record කරනවා — duplicate නෑ, log එකටත් එන්නේ නෑ.)
 
 ## 3. State file එක backup / restore
 
@@ -93,5 +122,6 @@ State file එකේ වැදගත් දේ `videos` map එක විතර�
 - [ ] cookie එක වැඩ කරනවද (run එකක් දාලා බලන්න)
 - [ ] `data/sync-state.json` commit වෙනවද
 - [ ] YouTube playlist එකේ අලුත් සින්දු add වෙලාද
-- [ ] Telegram full log එකේ වැරදි matches තියෙනවද → overrides
+- [ ] Telegram full log එකේ වැරදි matches තියෙනවාද → overrides
 - [ ] `pending` null ද
+- [ ] Job summary එකේ `Skipped (not retried)` ගණන වැඩි වෙනවාද → ඒ ලිස්ට් එකේ ඉන්නේ ඇත්තටම හම්බුනේ නැති සින්දු (patterns වැඩ කරන්නේ නැති ඒවා)
