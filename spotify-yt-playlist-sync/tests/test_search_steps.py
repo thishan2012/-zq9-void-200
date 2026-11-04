@@ -1,3 +1,4 @@
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,6 +31,23 @@ class Catalog:
             text = app.normalized(' '.join([item['name'] or ''] + [a.get('name') or '' for a in item['artists']]))
             if words & set(text.split()):
                 hits.append(item)
+        return hits
+
+    def search_query(self, query, token):
+        """Same fake search, for a ready-made query (field operators included)."""
+        fields = dict(re.findall(r'(track|artist):"([^"]*)"', query))
+        words = set(app.normalized(re.sub(r'(track|artist):"[^"]*"', ' ', query)).split())
+        hits = []
+        for item in self.tracks:
+            name = app.normalized(item['name'] or '')
+            artists = [app.normalized(a.get('name') or '') for a in item['artists']]
+            if 'track' in fields and app.normalized(fields['track']) not in name:
+                continue
+            if 'artist' in fields and not any(app.normalized(fields['artist']) in artist for artist in artists):
+                continue
+            if not words or words & set((name + ' ' + ' '.join(artists)).split()):
+                hits.append(item)
+        self.queries.append(('', query))
         return hits
 
     def existing_tracks(self, playlist, token):
@@ -248,6 +266,89 @@ class LabelEngineCreditTests(unittest.TestCase):
         self.assertIsNone(found)
 
 
+class FieldOperatorStepTests(StepTestCase):
+    def test_track_and_artist_fields_are_used(self):
+        video_item = video('SHAKA (SLOWED)', channel='Nulteex')
+        catalog = Catalog([track('t1', 'SHAKA - Slowed', 'Nulteex')])
+        found, _ = self.run_step(search_steps.FieldOperatorStep, video_item, catalog)
+        self.assertEqual(found['id'], 't1')
+        self.assertTrue(any('track:' in query and 'artist:' in query for _, query in catalog.queries))
+
+    def test_another_artist_with_the_same_title_is_refused(self):
+        video_item = video('SHAKA (SLOWED)', channel='Nulteex')
+        catalog = Catalog([track('t1', 'SHAKA - Slowed', 'Somebody')])
+        found, _ = self.run_step(search_steps.FieldOperatorStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
+class QueryVariantStepTests(StepTestCase):
+    def test_the_version_less_query_finds_the_song(self):
+        video_item = video('SHAKA (SLOWED)', channel='Nulteex')
+        found, _ = self.run_step(search_steps.QueryVariantStep, video_item, Catalog(
+            [dict(track('t1', 'SHAKA', 'Nulteex'), album='SHAKA (Slowed)')]))
+        self.assertEqual(found['id'], 't1')
+
+    def test_a_sped_up_edit_is_still_refused(self):
+        video_item = video('SHAKA (SLOWED)', channel='Nulteex')
+        found, _ = self.run_step(search_steps.QueryVariantStep, video_item, Catalog(
+            [track('t1', 'SHAKA - Sped Up', 'Nulteex')]))
+        self.assertIsNone(found)
+
+
+class DurationVersionStepTests(StepTestCase):
+    def test_a_loose_title_is_enough_when_the_length_and_version_agree(self):
+        video_item = dict(video('LOUCARA FUNK', channel='Espato'), duration_ms=88000)
+        catalog = Catalog([dict(track('t1', 'LOUCARA FUNK', 'Espato'), duration_ms=89500)])
+        found, _ = self.run_step(search_steps.DurationVersionStep, video_item, catalog)
+        self.assertEqual(found['id'], 't1')
+
+    def test_a_different_length_is_refused(self):
+        video_item = dict(video('LOUCARA FUNK', channel='Espato'), duration_ms=88000)
+        catalog = Catalog([dict(track('t1', 'LOUCARA FUNK', 'Espato'), duration_ms=120000)])
+        found, _ = self.run_step(search_steps.DurationVersionStep, video_item, catalog)
+        self.assertIsNone(found)
+
+    def test_a_different_version_is_refused(self):
+        video_item = dict(video('LOUCARA FUNK (Slowed)', channel='Espato'), duration_ms=88000)
+        catalog = Catalog([dict(track('t1', 'LOUCARA FUNK', 'Espato'), duration_ms=88000)])
+        found, _ = self.run_step(search_steps.DurationVersionStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
+class CleanArtistStepTests(StepTestCase):
+    def test_the_artist_left_after_cleaning_is_used(self):
+        video_item = video('DESTELLO - HDN | VIRAL PHONK', channel='HDN')
+        catalog = Catalog([track('t1', 'HDN', 'DESTELLO')])
+        found, _ = self.run_step(search_steps.SuffixArtistStep, video_item, catalog)
+        self.assertEqual(found['id'], 't1')
+
+    def test_a_cleaned_title_still_needs_the_right_song(self):
+        video_item = video('DESTELLO - HDN | VIRAL PHONK', channel='HDN')
+        catalog = Catalog([track('t1', 'SOMETHING ELSE', 'DESTELLO')])
+        found, _ = self.run_step(search_steps.SuffixArtistStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
+class TimedTitleStepTests(StepTestCase):
+    def test_the_title_alone_is_enough_when_the_length_matches(self):
+        video_item = dict(video('MONTAGEM RUNE - WUYS x KIT', channel='Release - Topic'), duration_ms=100000)
+        catalog = Catalog([dict(track('t1', 'MONTAGEM RUNE', 'DJ NEO'), duration_ms=100500)])
+        found, _ = self.run_step(search_steps.TimedTitleStep, video_item, catalog)
+        self.assertEqual(found['id'], 't1')
+
+    def test_without_a_length_nothing_is_guessed(self):
+        video_item = video('MONTAGEM RUNE - WUYS x KIT', channel='Release - Topic')
+        self.assertFalse(search_steps.TimedTitleStep(video_item, app.metadata(video_item), {}).applies())
+
+
+class ManualPickLinkTests(unittest.TestCase):
+    def test_a_skipped_song_gets_a_search_link_and_an_override_key(self):
+        link = app.search_link({'title': 'DESTELLO - HDN | VIRAL PHONK', 'video_id': 'aLZNbOUOyI4'})
+        self.assertIn('https://open.spotify.com/search/', link)
+        self.assertIn('track-overrides.json', link)
+        self.assertIn('aLZNbOUOyI4', link)
+
+
 class FeaturedNameTests(unittest.TestCase):
     """The featured credit inside a title is not part of the song's name."""
 
@@ -265,7 +366,8 @@ class FeaturedNameTests(unittest.TestCase):
                            description='Provided to YouTube by X\n\nFUNK TONTO · MC Ombrinho')
         catalog = Catalog([dict(track('t1', 'FUNK TONTO', 'MC Ombrinho'), album='FUNK TONTO (Slowed)')])
         found, code = search_steps.search_more(catalog, video_item, app.metadata(video_item), 'token', {})
-        self.assertEqual((found['id'], code), ('t1', 'PART'))
+        self.assertEqual(found['id'], 't1')
+        self.assertIsNotNone(code)
 
 
 class DescriptionCreditTests(unittest.TestCase):
@@ -295,7 +397,9 @@ class DescriptionCreditTests(unittest.TestCase):
                                 album='FUNK TONTO (Slowed)')])
         parsed = app.metadata(video_item)
         found, code = search_steps.search_more(catalog, video_item, parsed, 'token', {})
-        self.assertEqual((found['id'], code), ('t1', 'PART'))
+        # Which step finds it is not the point: an earlier step may now get there.
+        self.assertEqual(found['id'], 't1')
+        self.assertIsNotNone(code)
 
     def test_a_wrong_artist_in_the_description_is_refused(self):
         video_item = video('FUNK TONTO (feat. Mc Ombrinho) [Slowed]', channel='Raiden - Topic',
