@@ -38,6 +38,10 @@ on:
     # GitHub cron is UTC only and may be delayed.
     # Scheduled runs are DRY RUNS unless the repository variable SYNC_ENABLED
     # is set to 'true'.
+    # GitHub switches schedules off after 60 days without repository activity -
+    # and "nothing new to sync" is this repository's normal state, so the
+    # database step leaves one empty commit on the 1st of each month to keep
+    # the clock reset. See "Save sync database" below.
     - cron: '0 */4 * * *'
     # Weekly retry (Sunday 03:00 UTC = 08:30 SL). Only this run re-asks about
     # songs that were skipped more than RETRY_AFTER_DAYS (7) days ago, so a track
@@ -222,22 +226,44 @@ jobs:
           COMMIT_EMAIL: ${{ vars.COMMIT_EMAIL || 'thishcrvwqe-bot@users.noreply.github.com' }}
           BOT_EMAIL: '41898282+github-actions[bot]@users.noreply.github.com'
         run: |
-          if git diff --quiet -- data/sync-state.json; then
-            echo 'No database changes.'
-            exit 0
-          fi
           git config user.name "$COMMIT_NAME"
           git config user.email "$COMMIT_EMAIL"
           git add data/sync-state.json
           if [ -f data/sync-state.json.bak ]; then
             git add -f data/sync-state.json.bak
           fi
+          # A run with nothing new writes no commit - except on the first run of
+          # a month, which carries a one-line heartbeat. Without it a public
+          # repository that is quiet for 60 days has its schedules switched off
+          # by GitHub, silently: nothing new to sync is exactly the normal state
+          # of this repository, so the clock would run out on its own.
+          # At most one per month: the six runs of the first day would otherwise
+          # all leave a commit.
+          HEARTBEAT_MSG='Keep the schedule alive (monthly heartbeat)'
+          HEARTBEAT=
+          if [ "$DRY_RUN" != "true" ] && [ "$DRY_RUN" != "false" ] \
+            && [ "$(date -u +%d)" = '01' ] \
+            && [ "$(git log -1 --format=%s)" != "$HEARTBEAT_MSG" ]; then
+            HEARTBEAT=1
+          fi
+          if git diff --quiet -- data/sync-state.json && [ -z "$HEARTBEAT" ]; then
+            echo 'No database changes.'
+            exit 0
+          fi
           if [ "$DRY_RUN" = "true" ]; then
             MESSAGE='Update skip/failure bookkeeping (dry run)'
+          elif [ -n "$HEARTBEAT" ]; then
+            MESSAGE='Keep the schedule alive (monthly heartbeat)'
           else
             MESSAGE='Update playlist sync state'
           fi
-          git commit -m "$MESSAGE"
+          # The heartbeat is deliberately an empty commit: it exists to count as
+          # repository activity, nothing else.
+          if [ -n "$HEARTBEAT" ]; then
+            git commit --allow-empty -m "$MESSAGE"
+          else
+            git commit -m "$MESSAGE"
+          fi
           # A changed database must not fail the whole run: the songs were
           # already added to Spotify (or reported as a dry run) at this point.
           # The run takes minutes; main may have moved on meanwhile, so rebase

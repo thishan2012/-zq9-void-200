@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-04 (the schedule keeps itself alive)
+
+GitHub switches a public repository's scheduled workflows off after **60 days without repository
+activity** - silently, with only a banner in the Actions tab. "Nothing new to sync" is the normal state
+of this repository, so a quiet month produces no commit at all and the clock would eventually run out.
+
+* The "Save sync database" step now leaves **one empty commit on the 1st of each month** when a live
+  run changed nothing (`Keep the schedule alive (monthly heartbeat)`). Dry runs never do it, and it is at
+  most one per month: the six runs of that day see it in the log and stay quiet.
+* Six runs a day is unchanged (`0 */4 * * *`).
+
 ## 2026-11-04 (the commit name really shows now)
 
 Renaming the committer was not enough: GitHub prints a commit's author **account**, and it finds that
