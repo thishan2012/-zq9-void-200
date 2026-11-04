@@ -13,7 +13,7 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 නෑ — ආරක්ෂාව 4ක්: ① state file (`videos` map) ② add කලින් playlist එකේ තියෙන track IDs ③ එකම track එකට videos දෙකක් ආවොත් එකයි ④ pending logic (අපැහැදිලි write එකක් auto-retry කරන්නේ නෑ). Job එක මැදින් කැඩුණත් batches state එකේ save වෙලා තියෙනවා.
 
 **Q. Playlist එකේ දැනටමත් තියෙන සින්දු add වෙනවද?**
-නෑ. `existing_tracks()` එකෙන් playlist එකේ track IDs ඔක්කොම කියවලා, ඒවා `SKIP: Track already in Spotify playlist` කියලා skip වෙනවා + state එකේ record වෙනවා.
+නෑ. `existing_tracks()` එකෙන් playlist එකේ track IDs ඔක්කොම කියවලා, ඒවා state එකේ record වෙනවා — Telegram එකටවත් `Skipped` ගණනටවත් එන්නේ නෑ (DB විතරයි).
 
 **Q. Spotify එකෙන් සින්දු delete කරනවද?**
 කවදාවත් නෑ. මේක one-way add-only sync එකක්. Playlist එකේ ඉඳන් අතින් මකලා තිබ්බත් ආයේ add වෙන්නේ නෑ (state එකේ record වෙලා නිසා) — ආයේ ඕන නම් state එකේ entry එක අයින් කරන්න.
@@ -28,14 +28,22 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 Delay 2s + search ≈ 5–10 min. Job timeout 180 min. GitHub Actions minutes (private repo) ~8 min/run.
 
 **Q. "Track already in Spotify playlist" කියන ඒවා Telegram එකට එන්නේ නෑ — හරිද?**
-ඔව්, ඒක හිතාමතාම. ඒ සින්දු database එකේ save වෙනවා (ආයේ search කරන්නේ නෑ), ඒත් message එකක් එවන්නේ නෑ. Header එකේ ගණන විතරයි: `Already present, not listed (125): 118 × Track already in Spotify playlist`.
-**Add නොවුණු නියම හේතු** තියෙන ඒවා (`No confident artist/title/version match`, `Unavailable…`, `FAIL`) තවම විස්තර සහිතව එනවා 👍
+ඔව්, ඒක හිතාමතාම. ඒ සින්දු database එකේ save වෙනවා (ආයේ search කරන්නේ නෑ), ඒත් message එකක් එවන්නේ නෑ, `Skipped` ගණනටවත් එන්නේ නෑ.
+**Add නොවුණු නියම හේතු** තියෙන ඒවා (`No confident artist/title/version match`, `Unavailable…`, `FAIL`) විස්තර සහිතව එනවා 👍
+
+**Q. එකම "No confident match" සින්දුව හැම run එකකම එනවා 😅 — 6 runs/day × එකම 5 songs?**
+ඒක දැන් නවත්තලා. Skip එකක් **එක පාරයි** log වෙන්නේ; ඒ video ID එක `data/sync-state.json` එකේ `skipped` යටතේ save වෙනවා → ඊට පස්සේ search එකක්වත්, Telegram message එකක්වත් නෑ.
+FAIL වුණු ඒවා **දෙපාරක්** log වෙලා, ඊට පස්සේ `failures` = 2 නිසා silent (retry කරන්නේත් නෑ).
+ආයේ try කරන්න ඕන නම් ඒ entry එක අයින් කරන්න (හෝ manual override එකක් දාන්න) — [09](09-recovery-and-maintenance.md#1c-එකම-සින්දුව-ආයේ-log-වෙනවා-නම්).
+
+**Q. Dry run එකේදීත් මේවා මතක තියාගන්නවද?**
+ඔව්. Dry run එකේදීත් `skipped`/`failures` bookkeeping එක save වෙනවා (add වුණු සින්දු save වෙන්නේ නෑ). නැත්නම් හැම dry run එකකම එකම 5 songs ආයේ එනවා.
 
 **Q. Telegram එකට message ගොඩක් එනවා 😅 (bot ban වෙයිද?)**
 දැන් නෑ. එක run එකකට **උපරිම messages 6ක්** — හැම message එකකුත් 4000 characters දක්වා pack කරලා. 200-song playlist එකකට **3** විතරයි. `bot ban` වෙන එක නවත්තන්න තමයි මේක. ඊට වඩා ඕන නම් අන්තිම message එකේ `omitted` notice එකක් එනවා + Actions log එකේ සම්පූර්ණ විස්තර.
 
 **Q. Dry run එකේදී "WOULD ADD" පෙන්නනවා, ඒත් playlist එකේ මොකුත් නෑ**
-හරි — dry run එකේදී Spotify එකට කිසිම write එකක් නෑ, state එකත් save වෙන්නේ නෑ. `dry_run` uncheck කරලා ආයේ දුවන්න.
+හරි — dry run එකේදී Spotify එකට කිසිම write එකක් නෑ, add වුණු සින්දු state එකටත් save වෙන්නේ නෑ. `dry_run` uncheck කරලා ආයේ දුවන්න.
 
 **Q. "No confident artist/title/version match" — ඇයි?**
 YouTube title/description එකේ artist එක විශ්වාස කරන්න බැරි නම්, හෝ Spotify එකේ version එක වෙනස් නම් (උදා: `Slowed` vs original) code එක skip කරනවා — වැරදි සින්දුවක් add කරනවාට වඩා skip එක හොඳයි. විසඳුම: `data/track-overrides.json` එකට manual mapping.
@@ -62,4 +70,4 @@ export YOUTUBE_PLAYLIST=… SPOTIFY_PLAYLIST=… YOUTUBE_API_KEY=…
 ```
 
 **Q. Tests කරන්නේ කොහොමද?**
-`.venv/bin/python -m unittest discover -s tests -v` → **65 tests** pass වෙන්න ඕන (requests package එක ඕන).
+`.venv/bin/python -m unittest discover -s tests -v` → **92 tests** pass වෙන්න ඕන (requests package එක ඕන).

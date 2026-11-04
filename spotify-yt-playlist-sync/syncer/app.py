@@ -22,6 +22,11 @@ OVERRIDES_PATH = Path('data/track-overrides.json')
 BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
+MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
+MATCHER_VERSION = 1  # bump when matching rules change: skipped songs get one more try.
+# Real reasons that are worth remembering in the database.
+SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
+                'Same track already planned in this run', 'Same track already planned in this dry run')
 PROXY_URL = 'https://corsly-proxy2.camdvr.org/'
 PARTNER_URL = 'https://api-partner.spotify.com/pathfinder/v2/query'
 # Unofficial web-player persisted queries; Spotify can rotate these at any time.
@@ -779,6 +784,51 @@ def save_state(path, state):
     temp.write_text(json.dumps(state, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     temp.replace(path)
 
+DRY_STATE = {}
+
+def save_skip_changes(state, dry_run):
+    """Skip/failure bookkeeping: saved at once in a live run, at the end in a dry run."""
+    if dry_run:
+        DRY_STATE[STATE_PATH] = state
+    else:
+        save_state(STATE_PATH, state)
+
+def save_deferred(dry_run):
+    """Write the bookkeeping gathered during a dry run, so the next run goes quiet."""
+    if not dry_run:
+        return
+    for path, state in list(DRY_STATE.items()):
+        save_state(path, state)
+    DRY_STATE.clear()
+
+def failures(db):
+    """video id -> number of times a song reported FAIL (capped per run later)."""
+    value = db.get('failures')
+    return value if isinstance(value, dict) else {}
+
+def record_failure(db, video_id):
+    """Count one failed attempt in the database (any type is tolerated)."""
+    counts = failures(db)
+    tried = counts.get(video_id)
+    tried = tried if isinstance(tried, int) and tried > 0 else 0
+    counts[video_id] = tried + 1
+    db['failures'] = counts
+    return counts[video_id]
+
+def is_retired(db, video_id):
+    """True when a song failed too many times: not retried, not reported."""
+    return failures(db).get(video_id, 0) >= MAX_REPORTED_FAILURES
+
+def remember_skip(db, video):
+    """Save a real skip in the database so it is never searched or reported again."""
+    items = db.get('skipped')
+    items = items if isinstance(items, dict) else {}
+    entry = {'title': log_text(video.get('title'))}
+    if video.get('channel'):
+        entry['channel'] = log_text(video.get('channel'))
+    items[video['id']] = entry
+    db['skipped'] = items
+
 def log_text(value):
     """Keep public metadata on one short line, without control characters."""
     return ' '.join(str(value).split())[:120]
@@ -942,20 +992,30 @@ def flush_batch(client, playlist, token, state, db, queue, chunk_size, counts, i
         # in it, leave pending set, and stop: never retry an ambiguous write.
         for item in chunk:
             counts['fail'] += 1
+            record_failure(db, item['video'])
             report_issue(issues, 'FAIL', item['meta'], str(exc), item['track'], item.get('method'))
+        save_skip_changes(state, False)
         raise
     except SyncError as exc:
         # A definite rejection means nothing was written; clear pending so the
         # next run can retry these tracks instead of stopping the whole sync.
         db['pending'] = None
-        save_state(STATE_PATH, state)
         for item in chunk:
+            tried = record_failure(db, item['video'])
             counts['fail'] += 1
-            report_issue(issues, 'FAIL', item['meta'], str(exc), item['track'])
-            LOG.warning('FAIL %s: %s', item['video'], exc)
+            if tried >= MAX_REPORTED_FAILURES:
+                # Second (last) time: this is the final message this song gets.
+                report_issue(issues, 'FAIL', item['meta'], f'{exc} (last time logged; retried silently from now on)',
+                             item['track'])
+            else:
+                report_issue(issues, 'FAIL', item['meta'], f'{exc} (this will be logged once more, then go quiet)',
+                             item['track'])
+            LOG.warning('FAIL %s: %s (attempt %d)', item['video'], exc, tried)
+        save_state(STATE_PATH, state)
     else:
         for item in chunk:
             db['videos'][item['video']] = item['track']
+            failures(db).pop(item['video'], None)
             counts['add'] += 1
             report_issue(issues, 'ADD', item['meta'], 'Added to Spotify', item['track'], item.get('method'))
             LOG.info('ADD %s -> %s', item['video'], item['track'])
@@ -975,6 +1035,23 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
     seen = set()
     queue = []
     fatal = None
+    if state.get('matcher') != MATCHER_VERSION:
+        # The matching rules changed (better patterns / a new release): give the
+        # remembered skips one more try instead of hiding them forever. Stamped in
+        # memory only; it is written with the next database save, so a run that
+        # changes nothing still touches no file.
+        previous = state.get('matcher')
+        retried = 0
+        for other in state['playlists'].values():
+            if isinstance(other, dict) and other.pop('skipped', None):
+                retried += 1
+        state['matcher'] = MATCHER_VERSION
+        if retried:
+            save_skip_changes(state, dry_run)
+            LOG.info('Matching rules v%s -> v%s: previously skipped songs will be tried once more',
+                     previous or '?', MATCHER_VERSION)
+    saved_skips = db.get('skipped')
+    saved_skips = saved_skips if isinstance(saved_skips, dict) else {}
     for item in pending_items(db):
         if item['track'] not in existing:
             raise FatalError('Previous add outcome is uncertain and the track was not found. Check Spotify manually, then clear pending in data/sync-state.json before retrying.')
@@ -993,16 +1070,30 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
             # nothing to count - it is not a skip with a reason.
             LOG.info('SYNCED %s: already in the database (not counted, not reported)', vid)
             continue
+        if vid in saved_skips and vid not in overrides:
+            # Already reported before with a real reason: remembered in the
+            # database, so it is never searched or logged again. A manual
+            # override in data/track-overrides.json always wins.
+            LOG.info('SYNCED %s: already logged as skipped (not counted, not reported)', vid)
+            continue
         if vid in seen:
             # The same video appears twice in the YouTube playlist: also not an
             # error, just saved once.
             LOG.info('SYNCED %s: duplicate video in the YouTube playlist (not counted, not reported)', vid)
             continue
         seen.add(vid)
+        if vid not in overrides and is_retired(db, vid):
+            # Failed twice already: not searched, not retried, not reported.
+            # A manual match in data/track-overrides.json is still honoured.
+            LOG.info('SYNCED %s: gave up after %d failure(s) (not counted, not reported)',
+                     vid, failures(db).get(vid, 0))
+            continue
         if video['title'].strip().casefold() in ('', 'private video', 'deleted video'):
             counts['skip'] += 1
             report_issue(issues, 'SKIP', video, 'Unavailable or missing video title')
-            LOG.info('SKIP %s: unavailable or missing video title', vid)
+            remember_skip(db, video)
+            save_skip_changes(state, dry_run)
+            LOG.info('SKIP %s: unavailable or missing video title (saved; not searched again)', vid)
             continue
         tid = None
         method = None
@@ -1030,7 +1121,10 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 if not track:
                     counts['skip'] += 1
                     report_issue(issues, 'SKIP', video, 'No confident artist/title/version match')
-                    LOG.info('SKIP %s: no confident artist/title/version match (video: %s)', vid, log_text(video['title']))
+                    remember_skip(db, video)
+                    save_skip_changes(state, dry_run)
+                    LOG.info('SKIP %s: no confident artist/title/version match (video: %s) (saved; not searched again)',
+                             vid, log_text(video['title']))
                     continue
                 tid = track['id']
                 artist_names = ', '.join(a.get('name', '') for a in track.get('artists', []))
@@ -1040,7 +1134,11 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 counts['skip'] += 1
                 reason = 'Same track already planned in this dry run' if dry_run else 'Same track already planned in this run'
                 report_issue(issues, 'SKIP', video, reason, tid, method)
-                LOG.info('SKIP %s: %s', vid, reason)
+                # Only the first video of a colliding pair is remembered: the
+                # track is already in the playlist, so this one adds nothing.
+                remember_skip(db, video)
+                save_skip_changes(state, dry_run)
+                LOG.info('SKIP %s: %s (saved; not searched again)', vid, reason)
                 continue
             if tid in existing:
                 # Already in the Spotify playlist: recorded in the database so it
@@ -1064,13 +1162,22 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 queued.difference_update(tid for tid in list(queued) if tid in existing)
         except FatalError as exc:
             counts['fail'] += 1
+            record_failure(db, vid)
+            save_skip_changes(state, dry_run)
             report_issue(issues, 'FAIL', video, str(exc), tid)
             fatal = exc
             break
         except SyncError as exc:
             counts['fail'] += 1
-            report_issue(issues, 'FAIL', video, str(exc), tid)
-            LOG.warning('FAIL %s: %s', vid, exc)
+            tried = record_failure(db, vid)
+            save_skip_changes(state, dry_run)
+            # Only the last failure is loud: a song that keeps failing goes
+            # quiet and is retried silently on the next run.
+            if tried >= MAX_REPORTED_FAILURES:
+                report_issue(issues, 'FAIL', video, f'{exc} (last time logged; retried silently from now on)', tid)
+            else:
+                report_issue(issues, 'FAIL', video, f'{exc} (this will be logged once more, then go quiet)', tid)
+            LOG.warning('FAIL %s: %s (attempt %d)', vid, exc, tried)
         except OSError:
             counts['fail'] += 1
             report_issue(issues, 'FAIL', video, 'Database file I/O error; sync stopped', tid)
@@ -1088,18 +1195,22 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
     if fatal:
         # Tracks still queued were never sent; the next run retries them without
         # duplicating anything already added in earlier batches.
+        save_deferred(dry_run)
         raise fatal
     drain()
+    save_deferred(dry_run)
 
 
 def db_stats(state):
-    """Count saved songs and pending items per playlist."""
+    """Count saved songs, remembered skips, failed attempts and pending items per playlist."""
     rows = []
     for playlist, db in sorted((state.get('playlists') or {}).items()):
         db = db if isinstance(db, dict) else {}
         pending = db.get('pending')
         rows.append((playlist,
                      len(db.get('videos') or {}),
+                     len(db.get('skipped') or {}) if isinstance(db.get('skipped'), dict) else 0,
+                     sum(1 for n in failures(db).values() if isinstance(n, int) and n > 0),
                      len(pending.get('items') or []) if isinstance(pending, dict) else 0))
     return rows
 
@@ -1111,14 +1222,19 @@ def db_summary(path, title='Database'):
     except FatalError as exc:
         return f'### 🗄️ {title}\n\nCould not read `{path}`: {exc}\n'
     rows = db_stats(state)
-    lines = [f'### 🗄️ {title}', '', '| Playlist | Saved songs | Pending |', '|---|---|---|']
+    lines = [f'### 🗄️ {title}', '',
+             '| Playlist | Saved songs | Skipped (not retried) | Failed (retried) | Pending |',
+             '|---|---|---|---|---|']
     if rows:
-        lines += [f'| `{playlist}` | **{saved}** | {pending or "—"} |' for playlist, saved, pending in rows]
+        lines += [f'| `{playlist}` | **{saved}** | {skipped or "—"} | {failed or "—"} | {pending or "—"} |'
+                  for playlist, saved, skipped, failed, pending in rows]
     else:
-        lines.append('| (empty) | 0 | — |')
-    total = sum(saved for _, saved, _ in rows)
-    lines += ['', f'**Total saved songs: {total}**',
-              '', 'A dry run never changes this file; a live run commits it back to the branch.']
+        lines.append('| (empty) | 0 | — | — | — |')
+    total = sum(saved for _, saved, _, _, _ in rows)
+    never = sum(skipped for _, _, skipped, _, _ in rows)
+    lines += ['', f'**Total saved songs: {total}** · **Skipped for good: {never}**',
+              '', 'Songs listed as skipped were logged once (twice for failures) and are not retried.',
+              'A dry run writes only this skip/failure bookkeeping; a live run also commits added songs.']
     return '\n'.join(lines) + '\n'
 
 
@@ -1175,7 +1291,15 @@ def main():
         fatal_reason = str(exc) if isinstance(exc, FatalError) else 'Invalid configuration or state file I/O error'
         LOG.error('%s', fatal_reason)
     finally:
-        summary = f"YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n{'Would add' if args.dry_run else 'Added'}: {counts['add']} | Skipped: {counts['skip']} | Failed: {counts['fail']}"
+        # Bookkeeping gathered during a dry run is written here too: a song that
+        # was reported twice stays quiet on every later run.
+        try:
+            save_deferred(args.dry_run)
+        except OSError:
+            LOG.error('Could not save the skip/failure bookkeeping')
+        summary = (f"YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n"
+                   f"{'Would add' if args.dry_run else 'Added'}: {counts['add']} | "
+                   f"Skipped: {counts['skip']} | Failed: {counts['fail']}")
         if fatal_reason:
             summary += f'\nRun stopped: {issue_text(fatal_reason)}'
         LOG.info(summary)

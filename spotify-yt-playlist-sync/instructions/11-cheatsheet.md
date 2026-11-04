@@ -61,6 +61,25 @@ python -m syncer.app --db-summary
 # state backup
 cp data/sync-state.json ~/sync-state-$(date +%F).json
 
+# skipped/failed ලැයිස්තුව බලන්න
+python - <<'EOF'
+import json, pathlib
+d = json.loads(pathlib.Path('data/sync-state.json').read_text())
+for pid, db in d['playlists'].items():
+    print(pid, 'saved', len(db.get('videos', {})), 'skipped', len(db.get('skipped', {})), 'failed', db.get('failures', {}))
+    for vid, info in db.get('skipped', {}).items(): print('  SKIP', vid, info.get('title'))
+EOF
+
+# එක සින්දුවක් ආයේ try කරන්න (skip + failure එක අයින් කරලා)
+python - <<'EOF'
+import json, pathlib
+p = pathlib.Path('data/sync-state.json'); d = json.loads(p.read_text())
+for db in d['playlists'].values():
+    db.get('skipped', {}).pop('aLZNbOUOyI4', None)
+    db.get('failures', {}).pop('aLZNbOUOyI4', None)
+p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + '\n')
+EOF
+
 # clear pending (playlist එක බැලුවට පස්සේ!)
 python - <<'EOF'
 import json, pathlib
@@ -76,8 +95,9 @@ EOF
 |---|---|
 | `ADD` | Spotify එකට add වුණා ✅ |
 | `WOULD ADD` | dry run — add වෙන්නේ ඊළඟ ඇත්ත run එකේ |
-| `SKIP` | no match / unavailable / same track in run — ගණනට + Telegram එකට එනවා |
-| *(silent)* | already recorded / already in Spotify / duplicate video → DB එකේ save විතරයි (ගණනටවත් නෑ) |
+| `SKIP` | no match / unavailable / same track in run — **මේ පාර විතරයි** ගණනට + Telegram එකට එනවා; ඊට පස්සේ DB එකේ `skipped` නිසා silent |
+| `FAIL` | network/HTTP error — **දෙපාරක්** log වෙනවා, ඊට පස්සේ `failures` නිසා silent (retry නෑ) |
+| *(silent)* | already recorded / already in Spotify / duplicate video / කලින් log වුණු skip හෝ fail → DB එකේ විතරයි (ගණනටවත් නෑ) |
 | `FAIL` | search error / add error / ambiguous write |
 
 ## Match methods

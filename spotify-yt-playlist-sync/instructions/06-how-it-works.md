@@ -67,16 +67,21 @@ Fail closed: playlist එක කියවන්න බැරි නම් run �
 
 ```
 1. pending reconcile (කලින් run එකේ අපැහැදිලි write එකක් තියෙනවා නම්)
-2. video already recorded?        → SKIP "Already recorded in the sync database"
-3. duplicate video in this run?   → SKIP
-4. unavailable title?             → SKIP
-5. override (manual)?             → MANUAL
-   නැත්නම් STRICT → LOOSE → DETAIL → හම්බුනේ නෑ නම් SKIP
-6. එකම track එක මේ run එකේ plan කරලද? → SKIP
-7. track එක Spotify playlist එකේ තියෙනවද? → SKIP  (+ state එකේ record)
-8. dry run? → WOULD ADD
-9. නැත්නම් queue එකට → batch 100 පිරුණම flush
+2. video already recorded?         → silent (DB විතරයි)
+3. කලින් SKIP වෙලා DB එකේ තියෙනවද?   → silent (search එකක්වත් නෑ)
+   (manual override එකක් තියෙනවා නම් මේක මග හරිනවා)
+4. duplicate video in this run?    → silent
+5. දෙපාරක් FAIL වෙලාද?             → silent (retry නෑ, search නෑ)
+6. unavailable title?              → SKIP (log 1යි) → DB එකේ සටහන් වෙනවා
+7. override (manual)?              → MANUAL
+   නැත්නම් STRICT → LOOSE → DETAIL → හම්බුනේ නෑ නම් SKIP (log 1යි) → DB
+8. එකම track එක මේ run එකේ plan කරලද? → SKIP (log 1යි) → DB
+9. track එක Spotify playlist එකේ තියෙනවද? → silent (+ state එකේ record)
+10. dry run? → WOULD ADD
+11. නැත්නම් queue එකට → batch 100 පිරුණම flush
 ```
+
+**silent** = Telegram එකටවත් `Skipped` ගණනටවත් එන්නේ නෑ, DB එකට විතරයි.
 
 ## 7. Batch add + pending (ලස්සනම කොටස)
 
@@ -105,21 +110,43 @@ add_batch(100 uris)          ← එක HTTP request
   "playlists": {
     "26ADR9K06DZ826IsgTno1S": {
       "videos": { "FGys9rRBytU": "1R96NBIdXeLeYHvstCJV1J" },
+      "skipped": { "aLZNbOUOyI4": { "title": "DESTELLO - HDN | VIRAL PHONK", "channel": "…" } },
+      "failures": { "pRs2d6p_EDo": 2 },
       "pending": null
     }
   }
 }
 ```
 - `videos` = video ID → track ID (add වුණු ඒවා)
+- `skipped` = ඇත්තටම හේතුවක් නිසා skip වුණු ඒවා (title + channel විතරයි — track ID එකක් නෑ). ආයේ search කරන්නේවත් log කරන්නේවත් නෑ
+- `failures` = video ID → FAIL වුණු ගණන. `2` වුණාම ආයේ try කරන්නේ නෑ
 - `pending` = `null` හෝ `{"items":[{video,track}…]}`
 - `save_state()` = temp file + atomic replace (කැඩුණු JSON එකකින් DB එක විනාශ වෙන්නේ නෑ)
 
 ## 9. Reporting
 
 - `report_issue()` → `issues[]` (status, title, channel, video_id, reason, track_id, method)
-- `telegram_messages()` → summary (SKIP/FAIL විතරයි)
-- `activity_messages()` → **full log** (හැම event එකක්ම, `#n` index එකක් එක්ක)
-- `utf16_chunks()` → Telegram 4096 limit එකට line boundary එකෙන් split
+- `summary_message()` → `Added/Would add | Skipped | Failed` + `Why songs were skipped:` breakdown
+- `activity_messages()` → per-song log (හැම reported song එකකටම එක block එකක්, `#n` index එකක් එක්ක)
+- `utf16_chunks()` / `telegram_many()` → 4000 units/chunk + run එකකට messages **6ක්** උපරිම
+- **silent**: already recorded / already in playlist / duplicate video → `issues[]` එකට එන්නේ නෑ
+
+## 9b. Remembered skips & failures (එකම සින්දුව දෙපාරකට වඩා log නොවෙන්න)
+
+හැම run එකකම එකම සින්දුව ආයේ ආයේ Telegram එකට එන එක නවත්තන්නේ DB එකෙන්:
+
+| තත්ත්වය | Log වෙන ගණන | ඊට පස්සේ | DB key |
+|---|---|---|---|
+| No confident match / unavailable / same-track | **1** | silent, search නෑ | `skipped` |
+| FAIL (network / HTTP) | **2** | silent, retry නෑ | `failures` |
+| Already synced / in playlist / duplicate | **0** | silent | `videos` |
+
+- `remember_skip()` → `skipped[video_id] = {title, channel}` (track ID නෑ → playlist එකෙන් මොකුත් අඩු වෙන්නේ නෑ)
+- `record_failure()` → `failures[video_id] += 1`; `is_retired()` → `>= MAX_REPORTED_FAILURES` (2)
+- add එකක් සාර්ථක වුණාම ඒ video එකේ failure counter එක මැකෙනවා
+- **manual override** (`data/track-overrides.json`) තියෙනවා නම් `skipped`/`retired` පිළිගන්නේ නෑ → ආයේ add වෙනවා
+- Dry run එකේදීත් මේ bookkeeping එක save වෙනවා (`save_deferred()`, run එක ඉවර වෙද්දී එක පාරක්) — එහෙම නැත්නම් හැම dry run එකකම එකම ඒවා ආයේ log වෙනවා
+- **`matcher`** (state එකේ මුල): `MATCHER_VERSION` එකයි. Patterns/මැචින් rules වෙනස් කරලා අලුත් version එකක් release කළොත්, පරණ `skipped` ලිස්ට් එක auto-clear වෙලා ඒ සින්දු **එක පාරක්** ආයේ try වෙනවා (matching හැදුවට පස්සේ ආයේ බලන්න පුළුවන් වෙන්න)
 
 ## 10. Files
 

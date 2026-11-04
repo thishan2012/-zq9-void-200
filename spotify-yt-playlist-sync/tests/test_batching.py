@@ -224,7 +224,11 @@ class DryRunSwitchTests(unittest.TestCase):
         report = '\n\n'.join(self.client.telegram_many.call_args.args[2])
         self.assertIn('DRY RUN', report)
         self.assertIn('Would add: 0', report)
-        self.assertFalse(self.path.exists())
+        # A dry run writes no added song, but the skip is remembered so the next
+        # run stays quiet (this is what stops a song being logged every run).
+        db = app.load_state(self.path)['playlists']['a' * 22]
+        self.assertEqual(db['videos'], {})
+        self.assertIn('AAAAAAAAAAA', db['skipped'])
 
     def test_without_the_switch_the_run_is_live(self):
         with self.assertLogs('sync', level='INFO') as logs:
@@ -247,10 +251,10 @@ class DatabaseSummaryTests(unittest.TestCase):
             'pl2': {'videos': {'v1': 't1'}, 'pending': {'items': [{'video': 'v9', 'track': 't9'}]}},
         }}), encoding='utf-8')
         text = app.db_summary(self.path)
-        self.assertIn('| `pl1` | **2** | — |', text)
-        self.assertIn('| `pl2` | **1** | 1 |', text)
+        self.assertIn('| `pl1` | **2** | — | — | — |', text)
+        self.assertIn('| `pl2` | **1** | — | — | 1 |', text)
         self.assertIn('**Total saved songs: 3**', text)
-        self.assertEqual(app.db_stats(app.load_state(self.path)), [('pl1', 2, 0), ('pl2', 1, 1)])
+        self.assertEqual(app.db_stats(app.load_state(self.path)), [('pl1', 2, 0, 0, 0), ('pl2', 1, 0, 0, 1)])
 
     def test_summary_handles_missing_and_empty_database(self):
         self.assertIn('(empty)', app.db_summary(self.path))

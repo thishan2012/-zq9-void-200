@@ -51,7 +51,9 @@ class TelegramReportingTests(unittest.TestCase):
                         'FAIL: Artist - Error Song', 'Spotify search: network error',
                         'SKIP: Private video', 'Unavailable or missing video title'):
             self.assertIn(snippet, text)
-        self.assertFalse(self.path.exists())
+        # Reported once, remembered in the database, quiet from the next run on.
+        skipped = app.load_state(self.path)['playlists']['playlist']['skipped']
+        self.assertEqual(sorted(skipped), ['BBBBBBBBBBB', 'DDDDDDDDDDD'])
 
     def test_already_recorded_existing_and_dry_run_duplicate(self):
         base = {'title': 'Artist - Good Song', 'channel': 'X'}

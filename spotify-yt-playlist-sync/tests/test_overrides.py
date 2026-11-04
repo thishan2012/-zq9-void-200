@@ -88,7 +88,9 @@ class OverrideTests(unittest.TestCase):
         unavailable = dict(VIDEO, title='Private video')
         self.assertEqual(self.run_sync(client, videos=[unavailable])['skip'], 1)
         self.assertEqual(client.added, [])
-        self.assertFalse(self.state_path.exists())
+        # Remembered in the database so it is not searched or logged again.
+        db = app.load_state(self.state_path)['playlists']['playlist']
+        self.assertEqual(list(db['skipped']), [unavailable['id']])
 
     def test_unmapped_video_uses_automatic_matching(self):
         client = FakeClient()

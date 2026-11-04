@@ -134,7 +134,7 @@ export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
 export YOUTUBE_API_KEY='…'
 # optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SPOTIFY_BATCH_SIZE
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
-.venv/bin/python -m unittest discover -s tests -v   # 65 tests
+.venv/bin/python -m unittest discover -s tests -v   # 92 tests
 ```
 
 The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
@@ -154,6 +154,11 @@ Two kinds of messages per run:
    to the 4000-character limit, so a 200-song playlist produces ~3 messages instead of a dozen. Anything
    beyond the cap is summarised with an "omitted" note and left in the Actions log. If Telegram is not
    configured or the send fails, the same report is printed in the Actions log.
+4. **A song is reported at most twice.** A skip (`No confident …`, unavailable, same track in the run) is
+   logged once and then remembered in `data/sync-state.json` under `skipped`; a failure is logged twice
+   (`… logged once more, then go quiet` → `… last time logged`) and remembered under `failures`. From then
+   on the song is silent: no Telegram entry, no count, no Spotify search. Delete the entry (or add a
+   manual override) to give a song another chance.
 
 Both are also printed to the Actions log.
 

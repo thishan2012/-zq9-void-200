@@ -1,7 +1,9 @@
 # 🧪 12 — DRY RUN (පළමුව මේකෙන් පටන් ගන්න 😌)
 
-Dry run = **කිසිම දෙයක් වෙනස් නොකර, ඇත්තටම මොකද වෙන්නේ කියලා බලන එක.**
-Spotify වලට **මොනවත් ලියන්නේ නෑ**, `data/sync-state.json` **වෙනස් වෙන්නේ නෑ**. ඒත් YouTube කියවනවා, Spotify playlist එකේ තියෙන tracks කියවනවා, searches කරනවා, Telegram එකට **සම්පූර්ණ report** එක එවනවා.
+Dry run = **Spotify වලට කිසිම දෙයක් ලියන්නේ නෑ, ඒත් ඇත්තටම මොකද වෙන්නේ කියලා බලන එක.**
+Add වෙන්නේ නෑ, add වුණු සින්දු DB එකට save වෙන්නේ නෑ. ඒත් YouTube කියවනවා, Spotify playlist එකේ තියෙන tracks කියවනවා, searches කරනවා, Telegram එකට **report** එක එවනවා.
+
+> **එකම වෙනස:** skip/fail bookkeeping එක (`skipped` / `failures`) dry run එකේදීත් save වෙනවා. ඒකයි "එකම සින්දුව හැම run එකකම log වෙනවා" කියන එක නවත්තන්නේ — බලන්න [06-how-it-works](06-how-it-works.md#11-remembered-skips--failures-එකම-සින්දුව-දෙපාරකට-වඩා-log-නොවෙන්න).
 
 ---
 
@@ -20,12 +22,12 @@ Dry run - preview only (no Spotify writes, no database changes)
 
 | Checkbox | මොකද වෙන්නේ |
 |---|---|
-| ✅ **checked** (default) | DRY RUN — `WOULD ADD` list එක විතරයි, DB change නෑ |
+| ✅ **checked** (default) | DRY RUN — `WOULD ADD` list එක විතරයි; Spotify add නෑ |
 | ☐ unchecked | **LIVE** — Spotify එකට add වෙනවා + DB commit වෙනවා |
 
 Run එක ඇතුළේ **Job summary** එකේ පේනවා:
 ```
-### YouTube → Spotify: DRY RUN — nothing written to Spotify or the database
+### YouTube → Spotify: DRY RUN — Spotify untouched (only skip/failure bookkeeping is saved)
 | Trigger | workflow_dispatch |
 | Dry run | true |
 ```
@@ -83,37 +85,41 @@ INFO DRY RUN: nothing will be written to Spotify and the database will not chang
 | Playlist එකේ දැනට තියෙන tracks කියවනවා | ✅ | ✅ |
 | Spotify search | ✅ | ✅ |
 | **Batch add** | ❌ | ✅ |
-| `data/sync-state.json` වෙනස් වීම | ❌ (saved songs ගණන වැඩි වෙන්නේ නෑ) | ✅ |
+| `data/sync-state.json` — add වුණු සින්දු (`videos`) | ❌ | ✅ |
+| `data/sync-state.json` — `skipped` / `failures` bookkeeping | ✅ (save වෙනවා) | ✅ |
 | Bot commit | ❌ | ✅ |
 | Telegram summary + full log | ✅ (`WOULD ADD` කියලා) | ✅ (`ADD` කියලා) |
-| Existing tracks skip | ✅ (report වෙනවා) | ✅ |
+| Already synced / already in playlist | ✅ (silent — DB විතරයි) | ✅ |
 
-> Dry run එකේදී `pending` reconcile එකත් බලනවා — ඒත් එයා state එකට ලියන්නේ නෑ. ඒ නිසා dry run එකකින් පස්සේ state file එකේ කිසිම වෙනසක් නෑ.
+> Dry run එකේදී `pending` reconcile එකත් බලනවා — ඒත් එයා state එකට ලියන්නේ නෑ. Add වුණු සින්දු නම් dry run එකකින් පස්සේ කවදාවත් save වෙන්නේ නෑ; skip/fail bookkeeping විතරයි ලියවෙන්නේ.
 
 ---
 
 ## E. Dry run එකේ report එක කියවන විදිය
 
-Telegram එකට messages 2ක් එනවා:
+Telegram එකට messages 2–3ක් එනවා:
 
 ```
 YouTube → Spotify DRY RUN: SUCCESS
-Would add: 187 | Skipped: 12 | Failed: 1
+Would add: 36 | Skipped: 5 | Failed: 0
+
+Why songs were skipped:
+  • 5 × No confident artist/title/version match
+
+Per-song details follow.
+Full log: the Actions run log.
 ```
-+ (summary එකේ SKIP/FAIL විස්තර)
 
 ```
 YouTube → Spotify log (DRY RUN): 36 song(s) to report
 
-#1 WOULD ADD: Artist - Song
-Match: STRICT
-Spotify: https://open.spotify.com/track/…
-Reason: Dry run: no Spotify or database change
+#1 WOULD ADD: Artist - Song — youtu.be/… · STRICT · open.spotify.com/track/…
 
-#2 SKIP: Artist - Other Song
-Reason: Track already in Spotify playlist
+#2 SKIP: Artist - Other Song — youtu.be/… · No confident artist/title/version match
 …
 ```
+
+`Skipped: 5` කියන්නේ **ඇත්තටම හේතුවක් තියෙන** ඒවා විතරයි. දැනටමත් playlist එකේ/DB එකේ තියෙන ඒවා ගණනටවත් message එකටවත් එන්නේ නෑ.
 
 බලන්න ඕන දේවල්:
 
@@ -121,7 +127,7 @@ Reason: Track already in Spotify playlist
 |---|---|---|
 | `WOULD ADD` + `Match: STRICT` | හොඳම case — artist+title+version හරි | මොකුත් නෑ |
 | `Match: LOOSE` / `DETAIL` | ටිකක් අඩු විශ්වාසය | Spotify link එක open කරලා සින්දුව හරිද බලන්න |
-| `SKIP: No confident … match` | හම්බුනේ නෑ | `data/track-overrides.json` එකට manual mapping |
+| `SKIP: No confident … match` | හම්බුනේ නෑ — **මේ පාර විතරයි** log වෙන්නේ | `data/track-overrides.json` එකට manual mapping |
 | *(silent)* `Track already in Spotify playlist` / `Already recorded` | දැනටමත් තියෙනවා — **skip ගණනටවත්, Telegram එකටවත් එන්නේ නෑ**, DB එකේ save විතරයි | මොකුත් නෑ (හරි) |
 | `FAIL: …` | search/add error | [07-troubleshooting](07-troubleshooting.md) |
 
@@ -142,8 +148,9 @@ Dry run එකේදී add request එක යන්නේ නෑ. ඒ නිස
 
 ## F2. Dry run එකේදී database එක
 
-Dry run එකේදී **කිසිම සින්දුවක් save වෙන්නේ නෑ**. Job summary එකේ `🗄️ Database` table එකේ ඒ නිසා පරණ ගණනම පේනවා.
-Live run එකකින් පස්සේ ඒ ගණන වැඩි වෙනවා + `data/sync-state.json` commit එකක් එනවා ("Update playlist sync state").
+Dry run එකේදී **එක සින්දුවක්වත් `videos` එකට save වෙන්නේ නෑ** — `Saved songs` ගණන වෙනස් වෙන්නේ නෑ.
+ඒත් `Skipped (not retried)` / `Failed (retried)` ගණන වැඩි වෙන්න පුළුවන්: ඒ bookkeeping එක dry run එකේදීත් save වෙනවා, commit message එක `Update skip/failure bookkeeping (dry run)`.
+Live run එකකින් පස්සේ `Saved songs` වැඩි වෙනවා + commit message එක `Update playlist sync state`.
 
 ## G. ඉක්මන් recap
 

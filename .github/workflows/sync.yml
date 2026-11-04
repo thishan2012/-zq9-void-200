@@ -110,7 +110,7 @@ jobs:
           SYNC_ENABLED: ${{ vars.SYNC_ENABLED }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
-            MODE='DRY RUN — nothing written to Spotify or the database'
+            MODE='DRY RUN — Spotify untouched (only skip/failure bookkeeping is saved)'
           else
             MODE='LIVE SYNC — tracks added, database committed'
           fi
@@ -132,8 +132,11 @@ jobs:
         if: ${{ always() }}
         run: rm -f cookies/spotify.txt
 
+      # Saved in dry runs too: the bookkeeping of songs that were reported with
+      # a real reason (so they are not logged again). Podcast/YouTube reads are
+      # free; only Spotify writes are skipped in a dry run.
       - name: Save sync database
-        if: ${{ always() && steps.sync.outcome != 'skipped' && env.DRY_RUN != 'true' }}
+        if: ${{ always() && steps.sync.outcome != 'skipped' }}
         run: |
           if git diff --quiet -- data/sync-state.json; then
             echo 'No database changes.'
@@ -142,5 +145,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/sync-state.json
-          git commit -m 'Update playlist sync state'
+          if [ "$DRY_RUN" = "true" ]; then
+            git commit -m 'Update skip/failure bookkeeping (dry run)'
+          else
+            git commit -m 'Update playlist sync state'
+          fi
           git push origin "HEAD:${GITHUB_REF_NAME}"
