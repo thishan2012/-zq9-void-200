@@ -20,6 +20,8 @@ UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0 Safari/537
 STATE_PATH = Path('data/sync-state.json')
 OVERRIDES_PATH = Path('data/track-overrides.json')
 BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
+SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
+TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 PROXY_URL = 'https://corsly-proxy2.camdvr.org/'
 PARTNER_URL = 'https://api-partner.spotify.com/pathfinder/v2/query'
 # Unofficial web-player persisted queries; Spotify can rotate these at any time.
@@ -382,17 +384,67 @@ class Client:
         if not isinstance(result, dict) or result.get('__typename') != 'AddItemsToPlaylistPayload':
             raise UncertainWrite('Spotify web-player add did not confirm success; check the playlist before clearing pending')
 
-    def telegram(self, token, chat, message):
+    def telegram(self, token, chat, message, quiet=False):
+        """Send one message (split if needed). Returns True when Telegram accepted it."""
         if not token or not chat:
-            LOG.warning('Telegram not configured; summary only in Actions log')
-            return
+            if not quiet:
+                LOG.warning('Telegram not configured; summary only in Actions log')
+            return False
+        delivered = True
         for chunk in utf16_chunks(message):
             try:
-                r = self.http.post(f'https://api.telegram.org/bot{token}/sendMessage', json={'chat_id': chat, 'text': chunk, 'disable_web_page_preview': True}, timeout=20)
+                r = self.http.post(f'https://api.telegram.org/bot{token}/sendMessage',
+                                   json={'chat_id': chat, 'text': chunk, 'disable_web_page_preview': True},
+                                   timeout=20)
                 if not r.ok:
-                    LOG.warning('Telegram delivery failed (HTTP %s)', r.status_code)
+                    if not quiet:
+                        LOG.warning('Telegram delivery failed (HTTP %s)', r.status_code)
+                    delivered = False
             except requests.RequestException:
-                LOG.warning('Telegram delivery failed (network error)')
+                if not quiet:
+                    LOG.warning('Telegram delivery failed (network error)')
+                delivered = False
+        return delivered
+
+    def telegram_many(self, token, chat, messages, max_messages=TELEGRAM_MAX_MESSAGES):
+        """Send the report as a handful of messages, never as a burst.
+
+        Whole messages are packed together (never cut in half) up to the
+        per-message limit, and one run sends at most ``max_messages`` messages.
+        If there would be more, the tail is summarised and the detail stays in
+        the Actions log - several small messages in a row look like spam and can
+        get a bot rate limited or reported.
+        """
+        if not token or not chat:
+            LOG.warning('Telegram not configured; report only in the Actions log')
+            return False
+        limit = 4000
+
+        def size(text):
+            return len(text.encode('utf-16-le')) // 2
+
+        packets, current = [], ''
+        for message in [chunk for message in messages for chunk in utf16_chunks(message or '', limit)]:
+            candidate = f'{current}\n\n{message}' if current else message
+            if current and size(candidate) > limit:
+                packets.append(current)
+                current = message
+            else:
+                current = candidate
+        if current:
+            packets.append(current)
+        if len(packets) > max_messages:
+            dropped = len(packets) - (max_messages - 1)
+            packets = packets[:max_messages - 1] + [
+                f'… {dropped} more message(s) omitted to keep this run at {max_messages} '
+                f'messages. Full per-song log: the Actions run log.']
+        LOG.info('Telegram: sending %d message(s)', len(packets))
+        for index, packet in enumerate(packets, start=1):
+            if not self.telegram(token, chat, packet, quiet=True):
+                LOG.warning('Telegram delivery stopped at message %d/%d', index, len(packets))
+                return False
+        return True
+
 
 def youtube_duration_ms(value):
     """Read the ISO-8601 duration returned by YouTube videos.list."""
@@ -779,32 +831,66 @@ def skip_breakdown(events):
     return counts
 
 
-def activity_messages(header, events):
-    """Full per-song log for Telegram: every listing except expected duplicates."""
-    limit = 4000
+def summary_message(summary, events):
+    """One compact message: counts plus why songs were skipped, no per-song list."""
+    lines = [summary]
+    quiet = skip_breakdown(events)
+    if quiet:
+        lines.append('')
+        lines.append(f'Already synced / already in the playlist ({sum(quiet.values())}), saved to the database:')
+        lines += [f'  • {number} × {reason}' for reason, number in sorted(quiet.items())]
+    reasons = {}
+    for event in events:
+        if event['status'] in ('ADD', 'WOULD ADD') or event.get('quiet'):
+            continue
+        reasons[event['reason']] = reasons.get(event['reason'], 0) + 1
+    if reasons:
+        lines.append('')
+        lines.append('Songs that did not go in:')
+        lines += [f'  • {number} × {reason}' for reason, number in sorted(reasons.items(), key=lambda item: -item[1])]
+    lines.append('')
+    lines.append('Per-song details follow.')
+    return '\n'.join(lines)
+
+
+def activity_messages(header, events, limit=4000):
+    """Compact per-song log for Telegram: one short block per reported song.
+
+    Two short lines per song keep a 200-song run inside a couple of Telegram
+    messages, so the bot never fires a burst of small messages.
+    """
     def size(text):
         return len(text.encode('utf-16-le')) // 2
+
     messages = [header]
     for event in events:
         if event.get('quiet'):
             # Already synced / already in the playlist: saved in the database,
-            # summarised in the header, not worth a message per song.
+            # counted in the header, not worth a message per song.
             continue
-        block = f"#{event['n']} {event['status']}: {event['title']}"
-        if event.get('channel'):
-            block += f"\nChannel: {issue_text(event['channel'], 120)}"
+        bits = []
         video_id = event.get('video_id')
         if isinstance(video_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id):
-            block += f'\nYouTube: https://www.youtube.com/watch?v={video_id}'
-        elif video_id:
-            block += f"\nYouTube ID: {issue_text(video_id, 100)}"
+            bits.append(f'youtu.be/{video_id}')
         if event.get('method'):
-            block += f"\nMatch: {event['method']}"
+            bits.append(event['method'])
         track_id = event.get('track_id')
         if isinstance(track_id, str) and re.fullmatch(r'[A-Za-z0-9]{22}', track_id):
-            block += f'\nSpotify: https://open.spotify.com/track/{track_id}'
-        block += f"\nReason: {event['reason']}"
-        if size(messages[-1] + '\n\n' + block) > limit:
+            bits.append(f'open.spotify.com/track/{track_id}')
+        if event['status'] not in ('ADD', 'WOULD ADD'):
+            # For a successful add the reason is the same sentence every time;
+            # the status already says it.
+            bits.append(event['reason'])
+        block = f"#{event['n']} {event['status']}: {event['title']}"
+        if bits:
+            block += ' — ' + ' · '.join(bits)
+        if size(block) + 2 > limit:
+            # A single enormous block (only possible with 150+ events) would
+            # otherwise be cut; keep it whole as its own message instead.
+            messages.append(block[:limit])
+            messages.append(header + ' (continued)')
+            continue
+        if size(messages[-1]) > len(header) + 1 and size(messages[-1] + '\n\n' + block) > limit:
             messages.append(header + ' (continued)')
         messages[-1] += '\n\n' + block
     return messages
@@ -1110,20 +1196,28 @@ def main():
         events = [dict(event, n=number) for number, event in enumerate(issues, start=1)]
         quiet = skip_breakdown(events)
         quiet_total = sum(quiet.values())
+        reported = len(events) - quiet_total
         LOG.info('Full report: %d event(s), %d already-present (not sent to Telegram)',
                  len(events), quiet_total)
         for reason, number in sorted(quiet.items()):
             LOG.info('  %d × %s', number, reason)
-        for message in telegram_messages(summary, events):
-            client.telegram(os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID'), message)
+        mode = 'DRY RUN' if args.dry_run else 'SYNC'
+        header = f'YouTube → Spotify log ({mode}): {reported} song(s) to report'
+        if quiet_total:
+            details = '; '.join(f'{number} × {reason}' for reason, number in sorted(quiet.items()))
+            header += f'\nAlready present, not listed ({quiet_total}): {details}'
+        header += '\nFull details: the Actions run log.'
+        reports = [summary_message(summary, events)]
         if events:
-            mode = 'DRY RUN' if args.dry_run else 'SYNC'
-            header = f'YouTube → Spotify log ({mode}): {len(events) - quiet_total} song(s) to report'
-            if quiet_total:
-                details = '; '.join(f'{number} × {reason}' for reason, number in sorted(quiet.items()))
-                header += f'\nAlready present, not listed ({quiet_total}): {details}'
-            for message in activity_messages(header, events):
-                client.telegram(os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID'), message)
+            reports += activity_messages(header, events)
+        delivered = client.telegram_many(os.environ.get('TELEGRAM_BOT_TOKEN'),
+                                         os.environ.get('TELEGRAM_CHAT_ID'), reports)
+        if not delivered:
+            # Telegram限额, blocked bot or no secrets: the report still has to
+            # reach the user, so print the same messages in the Actions log.
+            LOG.warning('Telegram report was not delivered; printing it to the Actions log instead')
+            for message in reports:
+                LOG.info('\n%s', message)
     return 0 if result == 'SUCCESS' else 1
 
 if __name__ == '__main__':

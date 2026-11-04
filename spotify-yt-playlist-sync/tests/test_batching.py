@@ -126,8 +126,8 @@ class BatchingTests(unittest.TestCase):
         _, issues = self.run_sync(BatchClient(), [video(1)])
         text = '\n'.join(app.activity_messages('full log', [dict(i, n=1) for i in issues]))
         self.assertIn('ADD: Artist 1 - Song 1', text)
-        self.assertIn('Spotify: https://open.spotify.com/track/', text)
-        self.assertIn('YouTube: https://www.youtube.com/watch?v=', text)
+        self.assertIn('open.spotify.com/track/', text)
+        self.assertIn('youtu.be/', text)
         # ...but the compact summary still omits them.
         self.assertNotIn('Artist 1 - Song 1', '\n'.join(app.telegram_messages('summary', issues)))
 
@@ -220,18 +220,18 @@ class DryRunSwitchTests(unittest.TestCase):
         with self.assertLogs('sync', level='INFO') as logs:
             self.assertEqual(self.run_main({'DRY_RUN': 'true'}, ['app']), 0)
         self.assertTrue(any('DRY RUN: nothing will be written' in line for line in logs.output))
-        message = self.client.telegram.call_args_list[0].args[2]
-        self.assertIn('DRY RUN', message)
-        self.assertIn('Would add: 0', message)
+        report = '\n\n'.join(self.client.telegram_many.call_args.args[2])
+        self.assertIn('DRY RUN', report)
+        self.assertIn('Would add: 0', report)
         self.assertFalse(self.path.exists())
 
     def test_without_the_switch_the_run_is_live(self):
         with self.assertLogs('sync', level='INFO') as logs:
             self.assertEqual(self.run_main({}, ['app']), 0)
         self.assertFalse(any('nothing will be written' in line for line in logs.output))
-        message = self.client.telegram.call_args_list[0].args[2]
-        self.assertIn('SYNC: SUCCESS', message)
-        self.assertIn('Added: 0', message)
+        report = '\n\n'.join(self.client.telegram_many.call_args.args[2])
+        self.assertIn('SYNC: SUCCESS', report)
+        self.assertIn('Added: 0', report)
 
 
 class DatabaseSummaryTests(unittest.TestCase):
