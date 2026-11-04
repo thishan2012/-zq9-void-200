@@ -26,6 +26,7 @@ SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 SEARCH_PAUSE_SECONDS = 0.5  # gap between two real searches (on top of REQUEST_DELAY_SECONDS).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
+MAX_ADDS_PER_RUN = 15  # Spotify writes per run; 0 = no cap. The rest wait for the next run.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
 MATCHER_VERSION = 14  # bump when matching rules change: skipped songs get one more try.
 RETRY_AFTER_DAYS = 7  # a remembered skip is retried by the weekly run after this long.
@@ -1562,7 +1563,9 @@ def summary_message(summary, events):
     """
     reasons = {}
     for event in events:
-        if event['status'] == 'ADD' or event['status'] == 'WOULD ADD' or event.get('quiet'):
+        if event['status'] in ('ADD', 'WOULD ADD', 'NEXT RUN') or event.get('quiet'):
+            # Not skips: an addition, or a song this run deliberately left for
+            # the next one (its count is already in the summary line).
             continue
         reasons[event['reason']] = reasons.get(event['reason'], 0) + 1
     lines = [summary]
@@ -1607,7 +1610,7 @@ def activity_messages(header, events, limit=4000):
         track_id = event.get('track_id')
         if isinstance(track_id, str) and re.fullmatch(r'[A-Za-z0-9]{22}', track_id):
             bits.append(f'open.spotify.com/track/{track_id}')
-        if event['status'] not in ('ADD', 'WOULD ADD'):
+        if event['status'] not in ('ADD', 'WOULD ADD', 'NEXT RUN'):
             # For a successful add the reason is the same sentence every time;
             # the status already says it.
             bits.append(event['reason'])
@@ -1724,9 +1727,14 @@ def flush_batch(client, playlist, token, state, db, queue, chunk_size, counts, i
 
 
 def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None, issues=None,
-         batch_size=BATCH_MAX):
+         batch_size=BATCH_MAX, max_adds=None):
     overrides = overrides or {}
     batch_size = max(1, min(int(batch_size or BATCH_MAX), BATCH_MAX))
+    # max_adds caps the songs this run writes to Spotify (0/None = no cap). The
+    # rest are left for the next run instead of a single bulk add: one big burst
+    # of additions is what looks abusive to Spotify, not the total.
+    max_adds = max(0, int(max_adds if max_adds is not None else MAX_ADDS_PER_RUN))
+    counted = {'queued': 0}  # additions already accepted into the write queue
     db = state['playlists'].setdefault(playlist, {'videos': {}, 'pending': None})
     existing = client.existing_tracks(playlist, token)  # Fail closed if we cannot check duplicates.
     planned = set()
@@ -1933,6 +1941,19 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 report_issue(issues, 'WOULD ADD', video, 'Dry run: no Spotify or database change', tid, method)
                 LOG.info('WOULD ADD %s -> %s', vid, tid)
                 continue
+            if max_adds and counted['queued'] >= max_adds:
+                # Over the cap for this run. Deliberately NOT remembered as a
+                # skip - that would make it permanent. No database entry is
+                # written either, so the next run sees the video as unsynced,
+                # matches it again and adds it then.
+                counts['defer'] = counts.get('defer', 0) + 1
+                planned.add(tid)
+                report_issue(issues, 'NEXT RUN', video,
+                             f'Over the {max_adds}-song limit for one run; the next run adds it',
+                             tid, method)
+                LOG.info('NEXT RUN %s -> %s: run limit of %d addition(s) reached', vid, tid, max_adds)
+                continue
+            counted['queued'] += 1
             queue.append({'video': vid, 'track': tid, 'meta': video, 'method': method})
             queued.add(tid)
             if len(queue) >= batch_size:
@@ -2409,7 +2430,8 @@ def main():
         args.dry_run = True
     if args.dry_run:
         LOG.info('DRY RUN: nothing will be written to Spotify and the database will not change')
-    counts = {'add': 0, 'skip': 0, 'fail': 0}
+    # 'defer': songs matched but left for the next run by MAX_ADDS_PER_RUN.
+    counts = {'add': 0, 'skip': 0, 'fail': 0, 'defer': 0}
     issues = []
     result = 'SUCCESS'
     fatal_reason = None
@@ -2429,6 +2451,9 @@ def main():
         batch_size = int(os.environ.get('SPOTIFY_BATCH_SIZE', str(BATCH_MAX)))
         if not 1 <= batch_size <= BATCH_MAX:
             raise ValueError('batch size out of range')
+        max_adds = int(os.environ.get('SPOTIFY_MAX_ADDS_PER_RUN', str(MAX_ADDS_PER_RUN)))
+        if not 0 <= max_adds <= 1000:
+            raise ValueError('max adds per run out of range')
         yt = playlist_id(os.environ.get('YOUTUBE_PLAYLIST', ''), 'YouTube')
         spotify = playlist_id(os.environ.get('SPOTIFY_PLAYLIST', ''), 'Spotify')
         key = os.environ.get('YOUTUBE_API_KEY', '')
@@ -2443,7 +2468,7 @@ def main():
         videos = client.youtube(key, yt)
         token = client.token(cookie)
         sync(client, videos, spotify, token, state, args.dry_run, counts, overrides=overrides,
-             issues=issues, batch_size=batch_size)
+             issues=issues, batch_size=batch_size, max_adds=max_adds)
         if counts['fail']:
             result = 'PARTIAL FAILURE'
     except (FatalError, ValueError, OSError) as exc:
@@ -2464,6 +2489,8 @@ def main():
         summary = (f"{name_line}YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n"
                    f"{'Would add' if args.dry_run else 'Added'}: {counts['add']} | "
                    f"Skipped: {counts['skip']} | Failed: {counts['fail']}")
+        if counts.get('defer'):
+            summary += f" | Next run: {counts['defer']}"
         # Which extra search step found what: the quickest way to judge the steps.
         extra = {}
         for event in issues:

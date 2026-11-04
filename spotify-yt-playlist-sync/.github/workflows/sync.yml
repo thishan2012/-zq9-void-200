@@ -17,6 +17,9 @@ name: YouTube to Spotify sync
 #   vars.REQUEST_DELAY_SECONDS     optional, default 2 s
 #   vars.SEARCH_PAUSE_SECONDS      optional, default 0.5 s (extra gap between two searches)
 #   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
+#   vars.SPOTIFY_MAX_ADDS_PER_RUN  optional, default 15 (0 = no cap): songs added
+#                                  per run; the rest wait for the next run, so a
+#                                  backlog is spread out instead of one bulk add
 #   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
 #   vars.COMMIT_NAME / COMMIT_EMAIL  optional: who the database commit is
 #                                   made by. Default thishcrvwqe-bot with an
@@ -148,6 +151,7 @@ jobs:
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
           SEARCH_PAUSE_SECONDS: ${{ vars.SEARCH_PAUSE_SECONDS || secrets.SEARCH_PAUSE_SECONDS || '0.5' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
+          SPOTIFY_MAX_ADDS_PER_RUN: ${{ vars.SPOTIFY_MAX_ADDS_PER_RUN || secrets.SPOTIFY_MAX_ADDS_PER_RUN || '15' }}
           RETRY_SKIPPED: ${{ env.RETRY_SKIPPED }}
         run: |
           echo "::notice::Dry run = $DRY_RUN"
@@ -173,6 +177,7 @@ jobs:
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
           SEARCH_PAUSE_SECONDS: ${{ vars.SEARCH_PAUSE_SECONDS || secrets.SEARCH_PAUSE_SECONDS || '0.5' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
+          SPOTIFY_MAX_ADDS_PER_RUN: ${{ vars.SPOTIFY_MAX_ADDS_PER_RUN || secrets.SPOTIFY_MAX_ADDS_PER_RUN || '15' }}
           SYNC_ENABLED: ${{ vars.SYNC_ENABLED }}
           RESET_DB: ${{ inputs.reset_db }}
           # Only the playlist name is read here (one read-only API call).
@@ -204,6 +209,11 @@ jobs:
             echo "| Request delay | \`$REQUEST_DELAY_SECONDS\` s |"
             echo "| Search pause | \`$SEARCH_PAUSE_SECONDS\` s |"
             echo "| Batch size | \`$SPOTIFY_BATCH_SIZE\` |"
+            if [ "${SPOTIFY_MAX_ADDS_PER_RUN:-15}" = '0' ]; then
+              echo "| Max additions per run | \`unlimited\` |"
+            else
+              echo "| Max additions per run | \`$SPOTIFY_MAX_ADDS_PER_RUN\` (rest next run) |"
+            fi
             echo
             echo 'Per-song detail (ADD / WOULD ADD / SKIP / FAIL) is in the "Sync playlists" log above and in the Telegram full log.'
           } >> "$GITHUB_STEP_SUMMARY"

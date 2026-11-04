@@ -43,13 +43,14 @@ class BatchingTests(unittest.TestCase):
         self.patch.start()
         self.addCleanup(self.patch.stop)
 
-    def run_sync(self, client, videos, *, dry=False, batch_size=app.BATCH_MAX):
+    def run_sync(self, client, videos, *, dry=False, batch_size=app.BATCH_MAX, max_adds=0):
+        # max_adds=0 keeps these tests about batching, not about the per-run cap.
         counts = {'add': 0, 'skip': 0, 'fail': 0}
         issues = []
         # Start from the database on disk, like a second workflow run does.
         state = app.load_state(self.path)
         app.sync(client, videos, 'playlist', 'token', state, dry,
-                 counts, issues=issues, batch_size=batch_size)
+                 counts, issues=issues, batch_size=batch_size, max_adds=max_adds)
         return counts, issues
 
     def test_two_hundred_tracks_are_added_in_two_batches(self):
@@ -91,6 +92,55 @@ class BatchingTests(unittest.TestCase):
         self.assertEqual(counts, {'add': 0, 'skip': 0, 'fail': 0})
         self.assertEqual(client.searches, 0)
         self.assertEqual(client.batches, [])
+
+    def test_max_adds_defers_the_rest_to_the_next_run(self):
+        # The cap only limits Spotify writes; the leftover songs are not
+        # remembered as skips, so the very next run picks them up.
+        videos = [video(i) for i in range(40)]
+        client = BatchClient()
+        counts, issues = self.run_sync(client, videos, max_adds=15)
+        self.assertEqual(counts['add'], 15)
+        self.assertEqual(counts['defer'], 25)
+        self.assertEqual(sum(len(batch) for batch in client.batches), 15)
+        self.assertEqual([issue['status'] for issue in issues].count('NEXT RUN'), 25)
+        saved = app.load_state(self.path)['playlists']['playlist']
+        self.assertEqual(len(saved['videos']), 15)
+        self.assertNotIn('skipped', saved)          # nothing forgotten for good
+        # The next run has room again and adds the rest.
+        counts, _ = self.run_sync(BatchClient(), videos, max_adds=15)
+        self.assertEqual(counts['add'], 15)
+        self.assertEqual(counts['defer'], 10)
+        counts, _ = self.run_sync(BatchClient(), videos, max_adds=15)
+        self.assertEqual(counts['add'], 10)
+        self.assertEqual(counts.get('defer', 0), 0)
+
+    def test_deferred_songs_are_counted_once_in_the_telegram_summary(self):
+        summary = 'YouTube → Spotify SYNC: SUCCESS\nAdded: 15 | Skipped: 0 | Failed: 0 | Next run: 25'
+        events = [{'status': 'NEXT RUN', 'reason': 'Over the 15-song limit for one run',
+                   'title': 'T', 'channel': '', 'video_id': 'v1', 'track_id': 't1',
+                   'method': None, 'n': 1}]
+        message = app.summary_message(summary, events)
+        # Deferred songs are a total, not a reason to look like a skip.
+        self.assertNotIn('Why songs were skipped', message)
+        self.assertNotIn('Over the 15-song limit', message)
+        self.assertIn('Next run: 25', message)
+        # And the per-song log says what happened without a manual pick link.
+        log = app.activity_messages('log', events)
+        self.assertIn('NEXT RUN: T', log[0])
+        self.assertNotIn('track-overrides.json', log[0])
+
+    def test_max_adds_zero_means_no_cap(self):
+        counts, _ = self.run_sync(BatchClient(), [video(i) for i in range(60)], max_adds=0)
+        self.assertEqual(counts['add'], 60)
+        self.assertNotIn('defer', counts)
+
+    def test_max_adds_does_not_limit_a_dry_run(self):
+        # A dry run writes nothing, so the cap must not hide what a real run
+        # would do: every song is still reported as WOULD ADD.
+        counts, issues = self.run_sync(BatchClient(), [video(i) for i in range(30)],
+                                       dry=True, max_adds=15)
+        self.assertEqual(counts['add'], 30)
+        self.assertEqual([issue['status'] for issue in issues].count('WOULD ADD'), 30)
 
     def test_dry_run_never_writes_but_reports_every_song(self):
         client = BatchClient()
