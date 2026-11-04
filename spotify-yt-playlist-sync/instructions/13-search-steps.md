@@ -224,6 +224,9 @@ Never matched: `REVERSED`, `SINGLE`, `SHORT`, …
 ```
 
 * මේකෙන් පේනවා **කුමන steps වැඩ කරනවද** කියලා → පස්සේ step කපනවද නැද්ද කියලා data එකෙන් තීරණය කරන්න.
+* **`Queries sent`** (හා `ran` tally) — step එක **කීප වතාවක් search කළාද** කියන එක. ඒක නැතුව "Songs found = 0" කියන්නේ "මේක මළ step එකක්" කියලා **වැරදියට** තේරෙනවා; ඇත්තටම `SONGTAG` වගේ steps හැම run එකකම search කරනවා, ඒත් ඉන්න කලින් step එකක් ජය ගන්නවා.
+  - **Tried but never won** → කපන්න සුදුසුකම් ලබන steps
+  - **Never tried (its condition never applied)** → මේ videos වලට අදාළම නැති steps (කපන්න එපා)
 * Dry run එකකින් count වෙන්නේ නෑ (dry run එකේ bookkeeping විතරයි) — live run එකකින් + dry run එකේ skip වුණ ඒවා වෙනස්.
 * ඒකම table එක Actions **job summary** එකටත් append වෙනවා.
 

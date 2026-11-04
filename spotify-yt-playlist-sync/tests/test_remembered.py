@@ -298,9 +298,25 @@ class RememberedTests(unittest.TestCase):
         self.assertIn('`STRICT`', report)
         self.assertIn('**7**', report)
         self.assertIn('70%', report)
-        self.assertIn('Never matched:', report)
+        self.assertIn('Never tried', report)
         self.assertIn('`TOPRESULT`', report)
-        self.assertNotIn('None', report.split('Never matched:')[0])
+        self.assertNotIn('None', report.split('Never tried')[0])
+
+    def test_a_step_that_tries_but_never_wins_is_named(self):
+        # The tally must not call a step dead when it searches every run: that
+        # was exactly how "SONGTAG" looked after the first live run.
+        db = self.state['playlists'].setdefault('playlist', {'videos': {}, 'skipped': {}})
+        db['matched'] = {'STRICT': 4}
+        db['worked'] = {'STRICT': 9, 'SONGTAG': 5}
+        db['ran'] = {'STRICT': 12, 'SONGTAG': 12, 'ISRC': 0}
+        app.save_state(self.path, self.state)
+        report = app.stats_report(self.path)
+        tried, never = report.split('Never tried')
+        self.assertIn('Tried but never won: `SONGTAG`', tried)
+        self.assertIn('`ISRC`', never)
+        self.assertNotIn('`SONGTAG`', never)
+        self.assertIn('Queries sent', report)
+        self.assertIn('| 5 |', report)     # its queries are visible, not a blank
 
     def test_stats_report_survives_a_missing_database(self):
         report = app.stats_report(self.path)

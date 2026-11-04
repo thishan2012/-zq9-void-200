@@ -152,9 +152,9 @@ extra step returned plus a verdict (`MATCH PART` = the song is on Spotify and st
 Spotify, a private video turned public, or a rule was fixed. The entry is removed from
 `data/sync-state.json`, so the next run searches that song again and may report it once more.
 
-`--stats` prints the match tally that every run keeps in `data/sync-state.json` (`matched`): songs per
-method, their share, and the steps that never matched - the data to decide whether a step still earns its
-place. The same table is appended to the Actions job summary.
+`--stats` prints the match tally that every run keeps in `data/sync-state.json` (`matched`, `worked`,
+`ran`): songs per method, their share, how many queries each step spent, the steps that search but never win
+(candidates for removal) and the steps whose condition never applied (leave those alone). The same table is appended to the Actions job summary.
 
 **The weekly run does this by itself.** Besides the six 4-hourly runs, the schedule has one weekly entry
 (`0 3 * * 0`, Sunday 03:00 UTC) that also retries every skip older than `RETRY_AFTER_DAYS` (7). A track that

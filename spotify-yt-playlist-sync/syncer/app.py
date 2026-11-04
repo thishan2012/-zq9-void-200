@@ -1399,6 +1399,40 @@ def record_match(db, code):
     counts[code] = (counts[code] if isinstance(counts.get(code), int) else 0) + 1
     db['matched'] = counts
 
+def step_work(db):
+    """How many search queries each step actually sent, over all runs."""
+    value = db.get('worked')
+    return value if isinstance(value, dict) else {}
+
+def step_runs(db):
+    """How many songs each step was actually *tried* on, over all runs."""
+    value = db.get('ran')
+    return value if isinstance(value, dict) else {}
+
+def record_run(db, codes):
+    """Count one try per step for this song (cache hits and misses alike)."""
+    if not codes:
+        return
+    counts = step_runs(db)
+    for code in codes:
+        if not isinstance(code, str) or not code:
+            continue
+        counts[code] = (counts[code] if isinstance(counts.get(code), int) else 0) + 1
+    if counts:
+        db['ran'] = counts
+
+def record_work(db, codes):
+    """Add one run's per-step query counts (a step that only reused the cache counts 0)."""
+    if not codes:
+        return
+    counts = step_work(db)
+    for code, value in codes.items():
+        if not isinstance(code, str) or not code or not isinstance(value, int) or value <= 0:
+            continue
+        counts[code] = (counts[code] if isinstance(counts.get(code), int) else 0) + value
+    if counts:
+        db['worked'] = counts
+
 def record_failure(db, video_id):
     """Count one failed attempt in the database (any type is tolerated)."""
     counts = failures(db)
@@ -1777,6 +1811,7 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
         method = None
         try:
             tid = overrides.get(vid)
+            step_state = {}          # per-song: which step spent which queries
             if tid:
                 method = 'MANUAL'
                 # Explicit user choice bypasses automatic metadata matching; it
@@ -1785,21 +1820,35 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
             else:
                 parsed = metadata(video)
                 step_state = {}
+                queries = step_state.setdefault('queries', {})
+
+                def sent(name, before):
+                    """Real Spotify queries this named method spent (cache hits excluded)."""
+                    after = getattr(client, 'searches', 0)
+                    queries[name] = queries.get(name, 0) + (
+                        after - before if isinstance(before, int) and isinstance(after, int) else 0)
+
+                before = getattr(client, 'searches', 0)
                 strict_candidates = client.search(*parsed, token) if parsed else []
+                sent('STRICT', before)
                 if getattr(client, 'keep_evidence', False):
                     step_state.setdefault('classic', {})['STRICT'] = strict_candidates
                 track = choose_match(*parsed, strict_candidates) if parsed else None
                 method = 'STRICT'
                 if not track:
                     # Search the complete title if the strict method misses.
+                    before = getattr(client, 'searches', 0)
                     candidates = client.search('', video['title'], token)
+                    sent('LOOSE', before)
                     if getattr(client, 'keep_evidence', False):
                         step_state.setdefault('classic', {})['LOOSE'] = candidates
                     track = choose_title_fallback(video['title'], parsed[1] if parsed else video['title'],
                                                   candidates, has_artist=bool(parsed))
                     method = 'LOOSE'
                 if not track:
+                    before = getattr(client, 'searches', 0)
                     track = detail_search(client, video, parsed, token, strict_candidates + candidates)
+                    sent('DETAIL', before)
                     method = 'DETAIL'
                 if not track:
                     # A chain of separate extra search steps (syncer/search_steps.py).
@@ -1812,6 +1861,8 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                         LOG.info('EXTRA STEP %s matched %s', code, vid)
                 if not track:
                     retried = vid in retried_ids or vid in saved_skips
+                    record_work(db, dict(step_state.get('queries') or {}))
+                    record_run(db, step_state.get('tried'))
                     counts['skip'] += 1
                     # A song re-tried after a matching-rule change is logged once
                     # again only while it is still news: the second miss is the
@@ -1834,6 +1885,11 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 artist_names = ', '.join(a.get('name', '') for a in track.get('artists', []))
                 LOG.info('%s MATCH %s: %s — %s', method, vid, log_text(track['name']), log_text(artist_names))
             record_match(db, method)   # saved with the next write, never on its own
+            # Which steps actually sent queries for this song (a hand-picked
+            # track spent none), so a step that tries every run but never wins
+            # is visible instead of looking dead.
+            record_work(db, dict(step_state.get('queries') or {}))
+            record_run(db, step_state.get('tried'))
             if tid in planned or tid in queued:
                 # Two videos resolved to the same track: add it only once.
                 counts['skip'] += 1
@@ -2039,34 +2095,54 @@ def stats_report(path, title='Match statistics', limit=40):
         state = load_state(path)
     except FatalError as exc:
         return f'### 📊 {title}\n\nCould not read `{path}`: {exc}\n'
-    lines = [f'### 📊 {title}', '']
+    lines = [f'### 📊 {title}', '',
+             '_Songs found: the step that produced the match. Queries sent: real Spotify searches that '
+             'step spent (cache reuse is free). A step that searches but never wins is a candidate for '
+             'removal; one that never ran simply did not apply._', '']
     any_row = False
     for playlist, db in sorted((state.get('playlists') or {}).items()):
         if not isinstance(db, dict):
             continue
         counts = step_stats(db)
+        worked = step_work(db)
+        ran = step_runs(db)
         saved = len(db.get('videos') or {})
         skipped = len(db.get('skipped') or {}) if isinstance(db.get('skipped'), dict) else 0
         lines += [f'**`{playlist}`** — saved {saved}, skipped {skipped}, '
                   f'matched {sum(value for value in counts.values() if isinstance(value, int))}', '']
-        if not counts:
+        if not counts and not worked:
             lines += ['No match recorded yet (the tally starts with the next run).', '']
             continue
         any_row = True
         total = sum(value for value in counts.values() if isinstance(value, int)) or 1
         # The three classic methods first (they do most of the work), then the
         # extra steps by how many songs they found.
-        codes = sorted(counts, key=lambda code: (code not in ('STRICT', 'LOOSE', 'DETAIL'),
-                                                 -counts.get(code, 0), code))[:limit]
-        lines += ['| # | Method | Songs | Share | Kind |', '|---|---|---|---|---|']
+        codes = sorted(set(counts) | set(worked),
+                       key=lambda code: (code not in ('STRICT', 'LOOSE', 'DETAIL'),
+                                         -counts.get(code, 0), -worked.get(code, 0), code))[:limit]
+        lines += ['| # | Method | Songs found | Share | Queries sent | Kind |',
+                  '|---|---|---|---|---|---|']
         for number, code in enumerate(codes, 1):
             value = counts.get(code) or 0
-            kind = 'classic' if code in ('STRICT', 'LOOSE', 'DETAIL') else 'extra step'
-            lines.append(f'| {number} | `{code}` | **{value}** | {value * 100 / total:.0f}% | {kind} |')
+            spent = worked.get(code) or 0
+            kind = ('classic' if code in ('STRICT', 'LOOSE', 'DETAIL')
+                    else 'manual' if code == 'MANUAL' else 'extra step')
+            share = f'{value * 100 / total:.0f}%' if value else '—'
+            lines.append(f'| {number} | `{code}` | **{value}** | {share} | '
+                         f'{spent or "—"} | {kind} |')
         lines.append('')
-        unused = [step.code for step in search_steps.STEPS if step.code not in counts]
-        if unused:
-            lines += ['Never matched: ' + ', '.join(f'`{code}`' for code in unused), '']
+        # "Never matched" alone was read as "this step is dead". A step that does
+        # search every run but never wins is a *candidate* for removal; a step
+        # that never even ran means its condition never applies to these videos.
+        never_won = [step.code for step in search_steps.STEPS
+                     if step.code not in counts and (worked.get(step.code) or 0) > 0]
+        never_ran = [step.code for step in search_steps.STEPS
+                     if step.code not in counts and not (ran.get(step.code) or 0)]
+        if never_won:
+            lines += ['Tried but never won: ' + ', '.join(f'`{code}`' for code in never_won), '']
+        if never_ran:
+            lines += ['Never tried (its condition never applied to these videos): '
+                      + ', '.join(f'`{code}`' for code in never_ran), '']
     if not any_row:
         lines += ['Nothing counted yet: the tally is written by the runs themselves.', '']
     return '\n'.join(lines).rstrip() + '\n'
