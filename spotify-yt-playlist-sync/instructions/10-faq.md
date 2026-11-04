@@ -70,4 +70,4 @@ export YOUTUBE_PLAYLIST=… SPOTIFY_PLAYLIST=… YOUTUBE_API_KEY=…
 ```
 
 **Q. Tests කරන්නේ කොහොමද?**
-`.venv/bin/python -m unittest discover -s tests -v` → **199 tests** pass වෙන්න ඕන (requests package එක ඕන).
+`.venv/bin/python -m unittest discover -s tests -v` → **209 tests** pass වෙන්න ඕන (requests package එක ඕන).

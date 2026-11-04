@@ -26,7 +26,7 @@ SEARCH_PAUSE_SECONDS = 0.5  # gap between two real searches (on top of REQUEST_D
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
-MATCHER_VERSION = 10  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 11  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -922,6 +922,23 @@ def with_featured(artist, title):
         return artist, title
     return f'{artist}, {found.group(1).strip()}', title
 
+def unduplicate(title):
+    """Drop a song name that the uploader wrote twice.
+
+    "MONTAGEM MIAU (MONTAGEM MIAU)" is one song, not a remix of itself. Left in,
+    the repeated half makes a correct Spotify match look like a different title.
+    """
+    text = ' '.join(str(title or '').split())
+    match = re.match(r'^(.+?)\s*[\[(]\s*(.+?)\s*[\])]\s*$', text)
+    if match and normalized(match.group(1)) == normalized(match.group(2)):
+        return match.group(1).strip()
+    words = text.split()
+    if len(words) >= 4 and len(words) % 2 == 0:
+        half = len(words) // 2
+        if normalized(' '.join(words[:half])) == normalized(' '.join(words[half:])):
+            return ' '.join(words[:half])
+    return text
+
 def metadata(video):
     """Guess (artist credit, song title) from a YouTube title.
 
@@ -929,7 +946,7 @@ def metadata(video):
     orders are recognised: the artist side is the one that is only names
     ("WUYS x KIT", "DJ ALEX, MC LOCKED"), or the side without a version tag.
     """
-    title = video['title'].strip()
+    title = unduplicate(video['title'].strip())
     channel = video.get('channel', '').strip()
     if not normalized(title) or title.casefold() in ('private video', 'deleted video'):
         return None
@@ -1050,9 +1067,31 @@ def version_tokens(title):
             found.add('slowed')
     return found
 
+def version_tokens_once(title):
+    """Version tokens, with a title that repeats itself counted once.
+
+    YouTube uploads often repeat the song name in brackets - "MONTAGEM MIAU
+    (MONTAGEM MIAU)" - where Spotify has the plain name. That repetition is not
+    a version, so a token carried only by the repeated half is dropped.
+    """
+    found = version_tokens(title)
+    core = normalized(canonical_track_title(title)).split()
+    if len(core) >= 4 and len(core) % 2 == 0:
+        half = len(core) // 2
+        if core[:half] == core[half:]:
+            once = set(core[:half])
+            found = {name for name in found
+                     if any(word in once for word in name.replace('-', ' ').split())}
+    return found
+
 def versions_agree(a, b):
-    """True when two titles describe the same edit (see version_tokens)."""
-    return version_tokens(a) == version_tokens(b)
+    """True when two titles describe the same edit (see version_tokens).
+
+    A name repeated in the video title (\"Song (Song)\", which also picks up a
+    false \"mix\" token from the second \"MONTAGEM\") is not a different edit.
+    """
+    return version_tokens_once(a) == version_tokens(b)
+
 
 def upgraded_edit(a, b):
     """True when one side is a harder slowed edit of the same song.
@@ -1312,15 +1351,37 @@ def is_retired(db, video_id):
     """True when a song failed too many times: not retried, not reported."""
     return failures(db).get(video_id, 0) >= MAX_REPORTED_FAILURES
 
-def remember_skip(db, video):
-    """Save a real skip in the database so it is never searched or reported again."""
+def remember_skip(db, video, retried=False):
+    """Save a real skip in the database so it is not searched again every run."""
     items = db.get('skipped')
     items = items if isinstance(items, dict) else {}
-    entry = {'title': log_text(video.get('title'))}
+    entry = {'title': log_text(video.get('title')), 'since': MATCHER_VERSION}
     if video.get('channel'):
         entry['channel'] = log_text(video.get('channel'))
+    if retried:
+        # A rule change bought this song one more try and it still did not match:
+        # the answer is unchanged, so it is not worth another report.
+        entry['retried'] = MATCHER_VERSION
     items[video['id']] = entry
     db['skipped'] = items
+
+
+def changed_video(db, video):
+    """True when a video that was skipped before now shows a different title.
+
+    A private or unavailable video has no title ("Private video"); once it is
+    readable the song can be searched like any other, so the remembered skip
+    must not hide it.
+    """
+    items = db.get('skipped')
+    if not isinstance(items, dict):
+        return False
+    entry = items.get(video.get('id'))
+    if not isinstance(entry, dict):
+        return False
+    before = str(entry.get('title') or '').strip().casefold()
+    now = log_text(video.get('title')).strip().casefold()
+    return bool(now) and now not in ('private video', 'deleted video') and now != before
 
 def log_text(value):
     """Keep public metadata on one short line, without control characters."""
@@ -1398,7 +1459,9 @@ def summary_message(summary, events):
                   for reason, number in sorted(reasons.items(), key=lambda item: -item[1])]
     # The songs nobody could place get a ready search link and the exact key for
     # data/track-overrides.json, right where they are read.
-    unmatched = [event for event in events if event['status'] == 'SKIP'
+    # Only songs the reader has not already been given a link for: a quiet
+    # re-try after a rule change must not offer the same pick again.
+    unmatched = [event for event in events if event['status'] == 'SKIP' and not event.get('quiet')
                  and event['reason'] == 'No confident artist/title/version match'][:PICK_LINKS_PER_RUN]
     if unmatched:
         lines += ['', 'Not found automatically - pick one and add it by hand:']
@@ -1558,6 +1621,7 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
     seen = set()
     queue = []
     fatal = None
+    retried_ids = set()          # skipped before, given one more try by a rule change
     if state.get('matcher') != MATCHER_VERSION:
         # The matching rules changed (better patterns / a new release): give the
         # remembered skips one more try instead of hiding them forever. Stamped in
@@ -1566,8 +1630,12 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
         previous = state.get('matcher')
         retried = 0
         for other in state['playlists'].values():
-            if isinstance(other, dict) and other.pop('skipped', None):
-                retried += 1
+            dropped = other.pop('skipped', None) if isinstance(other, dict) else None
+            if isinstance(dropped, dict) and dropped:
+                retried += len(dropped)
+                # Remember which songs those were: a second miss is the same
+                # answer as before, so it is counted but never reported again.
+                retried_ids.update(dropped)
         state['matcher'] = MATCHER_VERSION
         if retried:
             save_skip_changes(state, dry_run)
@@ -1575,6 +1643,7 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                      previous or '?', MATCHER_VERSION)
     saved_skips = db.get('skipped')
     saved_skips = saved_skips if isinstance(saved_skips, dict) else {}
+    retried_ids = retried_ids if isinstance(retried_ids, set) else set()
     # Explain mode (--save-explain): keep what each song's search actually returned.
     evidence = {}
     if getattr(client, 'keep_evidence', False) and isinstance(state, dict):
@@ -1599,10 +1668,11 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
             # nothing to count - it is not a skip with a reason.
             LOG.info('SYNCED %s: already in the database (not counted, not reported)', vid)
             continue
-        if vid in saved_skips and vid not in overrides:
+        if vid in saved_skips and vid not in overrides and not changed_video(db, video):
             # Already reported before with a real reason: remembered in the
-            # database, so it is never searched or logged again. A manual
-            # override in data/track-overrides.json always wins.
+            # database, so it is not searched or logged again. A manual override
+            # in data/track-overrides.json always wins, and so does a video whose
+            # title has appeared since ("Private video" -> a real song).
             LOG.info('SYNCED %s: already logged as skipped (not counted, not reported)', vid)
             continue
         if vid in seen:
@@ -1662,9 +1732,14 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                     if code:
                         LOG.info('EXTRA STEP %s matched %s', code, vid)
                 if not track:
+                    retried = vid in retried_ids or vid in saved_skips
                     counts['skip'] += 1
-                    report_issue(issues, 'SKIP', video, 'No confident artist/title/version match')
-                    remember_skip(db, video)
+                    # A song re-tried after a matching-rule change is logged once
+                    # again only while it is still news: the second miss is the
+                    # same answer, so it is counted but never reported twice.
+                    report_issue(issues, 'SKIP', video, 'No confident artist/title/version match',
+                                 quiet=retried)
+                    remember_skip(db, video, retried=retried)
                     save_skip_changes(state, dry_run)
                     LOG.info('SKIP %s: no confident artist/title/version match (video: %s) (saved; not searched again)',
                              vid, log_text(video['title']))
@@ -1788,6 +1863,45 @@ def db_summary(path, title='Database'):
     return '\n'.join(lines) + '\n'
 
 
+def forget_skips(video_ids, *, all_skips=False, state=None):
+    """Drop remembered skips so the next run searches those songs again.
+
+    A skip is remembered forever on purpose (that is what stops a 200-song run
+    from re-reporting the same misses). When one becomes findable again - the
+    track came back to Spotify, a video turned public - this is how it gets
+    another try without editing data/sync-state.json by hand.
+    """
+    state = state if state is not None else load_state(STATE_PATH)
+    wanted = {str(video_id).strip() for video_id in video_ids if str(video_id).strip()}
+    for video_id in wanted:
+        if not re.fullmatch(r'[A-Za-z0-9_-]{11}', video_id):
+            print(f'Not a YouTube video ID: {video_id}')
+            return 2
+    removed = []
+    for playlist, db in (state.get('playlists') or {}).items():
+        if not isinstance(db, dict):
+            continue
+        skips = db.get('skipped')
+        if not isinstance(skips, dict):
+            continue
+        for video_id in list(skips):
+            if not all_skips and video_id not in wanted:
+                continue
+            entry = skips.get(video_id) if isinstance(skips.get(video_id), dict) else {}
+            removed.append((playlist, video_id, entry.get('title', '')))
+            del skips[video_id]
+        if not skips:
+            db.pop('skipped', None)
+    if not removed:
+        print('Nothing to forget: no remembered skip matched.')
+        return 0
+    save_state(STATE_PATH, state)
+    for playlist, video_id, title in removed:
+        print(f'Forgot skip {video_id}: {title}  (next run searches it again)')
+    print(f'{len(removed)} remembered skip(s) removed.')
+    return 0
+
+
 def explain(state=None, limit=25):
     """Search every remembered skip again and print what Spotify returned.
 
@@ -1866,6 +1980,12 @@ def main():
     parser.add_argument('--explain', action='store_true',
                         help='search the songs that were skipped and print what Spotify returned, then exit '
                              '(no Spotify change, no database change)')
+    parser.add_argument('--forget-video', metavar='VIDEO_ID', action='append', default=[],
+                        help='remove the remembered skip of this YouTube video (repeatable) so the next '
+                             'run searches it again, then exit')
+    parser.add_argument('--forget-skipped', action='store_true',
+                        help='remove every remembered skip (a song that is on Spotify again gets another '
+                             'try), then exit')
     parser.add_argument('--save-explain', action='store_true',
                         help='with a normal run: keep the rejected search results of skipped songs in the '
                              'database so --explain can show them without searching again')
@@ -1878,6 +1998,8 @@ def main():
         for number, step in enumerate(search_steps.STEPS, start=1):
             print(f'{number:2d}. {step.code:<10} {step.title}')
         return 0
+    if args.forget_video or args.forget_skipped:
+        return forget_skips(args.forget_video, all_skips=args.forget_skipped)
     if args.explain:
         return explain()
     if args.playlist_title:
