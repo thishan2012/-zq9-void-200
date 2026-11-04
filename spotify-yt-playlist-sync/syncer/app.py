@@ -24,7 +24,7 @@ BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
-MATCHER_VERSION = 7  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 8  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -376,8 +376,11 @@ class Client:
             artists = item.get('artists') or {}
             duration = item.get('duration') or item.get('trackDuration') or {}
             duration_ms = duration.get('totalMilliseconds') if isinstance(duration, dict) else None
-            result = {'id': uri.removeprefix('spotify:track:'), 'name': item.get('name', ''),
-                'artists': [{'name': (a.get('profile') or {}).get('name', '')} for a in artists.get('items', [])]}
+            names = [(a.get('profile') or {}).get('name') for a in artists.get('items', [])]
+            # A null/empty artist name is dropped, not kept as a blank entry: it
+            # would make a correct track look like a different artist later.
+            result = {'id': uri.removeprefix('spotify:track:'), 'name': item.get('name') or '',
+                      'artists': [{'name': name} for name in names if isinstance(name, str) and name.strip()]}
             if isinstance(duration_ms, (int, float)) and duration_ms > 0:
                 result['duration_ms'] = duration_ms
             # Ranking evidence for the looser steps (never shown in the report).
@@ -488,6 +491,9 @@ def youtube_duration_ms(value):
     return int(total * 1000) if total > 0 else None
 
 def normalized(s):
+    # Spotify sometimes returns an artist slot with a null name.
+    if not isinstance(s, str):
+        return ''
     # Remove non-musical labels, but retain mix/version labels such as Slowed.
     s = re.sub(r'\([^)]*(?:official|video|audio|lyrics|visualizer)[^)]*\)|\[[^]]*(?:official|video|audio|lyrics|visualizer)[^]]*\]', ' ', s, flags=re.I)
     s = re.sub(r'\s*[|–—-]\s*(?:official\s+)?(?:music\s+)?(?:video|audio|lyrics|visualizer)\s*$', '', s, flags=re.I)
