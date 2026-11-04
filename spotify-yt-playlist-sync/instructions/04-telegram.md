@@ -22,14 +22,14 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 ## 3. ඔයාට එන messages — **උපරිම 6ක්** (spam guard)
 
 ```text
-[1] Summary
+[1] Summary  ← "Skipped" ගණන මෙතනින් explain වෙනවා
     YouTube → Spotify DRY RUN: SUCCESS
     Would add: 36 | Skipped: 130 | Failed: 0
 
-    Already synced / already in the playlist (125), saved to the database:
+    Already synced, in the playlist, or duplicated (125) — saved to the database, not listed:
       • 125 × Track already in Spotify playlist
 
-    Songs that did not go in:
+    Songs that need a look:
       • 5 × No confident artist/title/version match
 
 [2..6] Per-song log (compact, 1 line per song)
