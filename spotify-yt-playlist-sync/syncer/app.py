@@ -24,7 +24,7 @@ BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
-MATCHER_VERSION = 3  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 4  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -380,6 +380,14 @@ class Client:
                 'artists': [{'name': (a.get('profile') or {}).get('name', '')} for a in artists.get('items', [])]}
             if isinstance(duration_ms, (int, float)) and duration_ms > 0:
                 result['duration_ms'] = duration_ms
+            # Ranking evidence for the looser steps (never shown in the report).
+            playcount = item.get('playcount')
+            if isinstance(playcount, (int, float)) and playcount > 0:
+                result['popularity'] = playcount
+            album = item.get('albumOfTrack') or {}
+            album_name = album.get('name') if isinstance(album, dict) else None
+            if isinstance(album_name, str) and album_name:
+                result['album'] = album_name
             results.append(result)
         return results
 
@@ -1273,6 +1281,12 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                      previous or '?', MATCHER_VERSION)
     saved_skips = db.get('skipped')
     saved_skips = saved_skips if isinstance(saved_skips, dict) else {}
+    # Explain mode (--save-explain): keep what each song's search actually returned.
+    evidence = {}
+    if getattr(client, 'keep_evidence', False) and isinstance(state, dict):
+        evidence = state.get('evidence')
+        if not isinstance(evidence, dict):
+            evidence = state['evidence'] = {}
     for item in pending_items(db):
         if item['track'] not in existing:
             raise FatalError('Previous add outcome is uncertain and the track was not found. Check Spotify manually, then clear pending in data/sync-state.json before retrying.')
@@ -1327,12 +1341,17 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 LOG.info('MANUAL MATCH %s -> %s (user-selected; version not automatically verified)', vid, tid)
             else:
                 parsed = metadata(video)
+                step_state = {}
                 strict_candidates = client.search(*parsed, token) if parsed else []
+                if getattr(client, 'keep_evidence', False):
+                    step_state.setdefault('classic', {})['STRICT'] = strict_candidates
                 track = choose_match(*parsed, strict_candidates) if parsed else None
                 method = 'STRICT'
                 if not track:
                     # Search the complete title if the strict method misses.
                     candidates = client.search('', video['title'], token)
+                    if getattr(client, 'keep_evidence', False):
+                        step_state.setdefault('classic', {})['LOOSE'] = candidates
                     track = choose_title_fallback(video['title'], parsed[1] if parsed else video['title'],
                                                   candidates, has_artist=bool(parsed))
                     method = 'LOOSE'
@@ -1341,8 +1360,10 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                     method = 'DETAIL'
                 if not track:
                     # A chain of separate extra search steps (syncer/search_steps.py).
-                    step_state = {}
-                    track, code = search_steps.search_more(client, video, parsed, token, step_state)
+                    # `step_state` already holds the classic results for --explain.
+                    track, code = search_steps.search_more(
+                        client, video, parsed, token, step_state,
+                        keep_evidence=getattr(client, 'keep_evidence', False))
                     method = code or 'DETAIL'
                     if code:
                         LOG.info('EXTRA STEP %s matched %s', code, vid)
@@ -1353,11 +1374,15 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                     save_skip_changes(state, dry_run)
                     LOG.info('SKIP %s: no confident artist/title/version match (video: %s) (saved; not searched again)',
                              vid, log_text(video['title']))
+                    if issues is not None and getattr(client, 'keep_evidence', False):
+                        evidence[vid] = {'title': log_text(video['title']), 'tries': list(step_state.get('tries') or [])}
+                        LOG.info('EXPLAIN %s: %d search result(s) kept for --explain', vid, len(evidence[vid]['tries']))
                     # Which extra steps ran, so a miss can be inspected later.
                     LOG.info('SKIP %s: extra steps tried: %s', vid,
                              ', '.join(step_state.get('tried') or ['none']))
                     continue
                 tid = track['id']
+                evidence.pop(vid, None)   # matched now: no need to explain it later
                 artist_names = ', '.join(a.get('name', '') for a in track.get('artists', []))
                 LOG.info('%s MATCH %s: %s — %s', method, vid, log_text(track['name']), log_text(artist_names))
             if tid in planned or tid in queued:
@@ -1469,6 +1494,67 @@ def db_summary(path, title='Database'):
     return '\n'.join(lines) + '\n'
 
 
+def explain(state=None, limit=25):
+    """Search every remembered skip again and print what Spotify returned.
+
+    Read-only: no Spotify write, no database write. It answers one question:
+    "was the song not on Spotify, or did our checks refuse it?"
+    """
+    state = load_state(STATE_PATH) if state is None else state
+    rows = []
+    for playlist, db in sorted((state.get('playlists') or {}).items()):
+        skipped = db.get('skipped') if isinstance(db, dict) else None
+        for video_id, info in sorted((skipped or {}).items()):
+            rows.append((playlist, video_id, str(info.get('title', '')), str(info.get('channel', ''))))
+    if not rows:
+        print('No remembered skips: every song was added, or nothing has run yet.')
+        return 0
+    client = Client(float(os.environ.get('REQUEST_DELAY_SECONDS', '1') or 1))
+    client.keep_evidence = True
+    try:
+        client.spotify_backend = 'web-player'
+        cookie = sp_dc_from_file(os.environ.get('SPOTIFY_COOKIE_FILE', 'cookies/spotify.txt'))
+        token = client.token(cookie)
+    except (FatalError, ValueError, OSError) as exc:
+        print(f'Could not start a Spotify session: {exc}')
+        return 1
+    saved = state.get('evidence') if isinstance(state.get('evidence'), dict) else {}
+    printed = 0
+    for playlist, video_id, title, channel in rows:
+        if printed >= limit:
+            print(f'… {len(rows) - printed} more skipped song(s) not shown (limit {limit}).')
+            break
+        printed += 1
+        video = {'id': video_id, 'title': title, 'channel': channel, 'description': ''}
+        parsed = metadata(video)
+        step_state = {'keep_evidence': True}
+        if video_id in saved:
+            # A run with --save-explain already recorded what Spotify returned.
+            print(f'{title}   (youtu.be/{video_id})')
+            print(f'  parsed as: {parsed or "(nothing usable)"}')
+            for attempt in saved[video_id].get('tries', []):
+                names = ' | '.join(f'{name} — {artist}' for name, artist in attempt.get('results', [])) or '(no results)'
+                print(f"  {attempt.get('step', '?'):<8} q={attempt.get('query', '')!r:<45} → {names}")
+            print('  verdict: still no match (from the last --save-explain run)\n')
+            continue
+        try:
+            match, code = search_steps.search_more(client, video, parsed, token, step_state)
+        except SyncError as exc:
+            print(f'{title}\n  error: {exc}\n')
+            continue
+        print(f'{title}   (youtu.be/{video_id})')
+        print(f'  parsed as: {parsed or "(nothing usable)"}')
+        for method_name in ('STRICT', 'LOOSE'):
+            results = step_state.get('classic', {}).get(method_name) or []
+            names = ' | '.join(f"{item.get('name', '')} — {', '.join(a.get('name', '') for a in item.get('artists', []))}"
+                               for item in results[:3]) or '(no results)'
+            print(f'  {method_name:<8} → {names}')
+        for attempt in step_state.get('tries', []):
+            names = ' | '.join(f'{name} — {artist}' for name, artist in attempt['results']) or '(no results)'
+            print(f"  {attempt['step']:<8} q={attempt['query']!r:<45} → {names}")
+        print(f'  verdict: {"MATCH " + code if match else "still no match"}\n')
+    return 0
+
 def main():
     parser = argparse.ArgumentParser(description='Experimental one-way YouTube to Spotify sync')
     parser.add_argument('--dry-run', action='store_true',
@@ -1480,6 +1566,12 @@ def main():
                         help='print the YouTube playlist name and its link, then exit')
     parser.add_argument('--steps', action='store_true',
                         help='list the extra search steps and exit')
+    parser.add_argument('--explain', action='store_true',
+                        help='search the songs that were skipped and print what Spotify returned, then exit '
+                             '(no Spotify change, no database change)')
+    parser.add_argument('--save-explain', action='store_true',
+                        help='with a normal run: keep the rejected search results of skipped songs in the '
+                             'database so --explain can show them without searching again')
     args = parser.parse_args()
     if args.db_summary:
         print(db_summary(STATE_PATH), end='')
@@ -1489,6 +1581,8 @@ def main():
         for number, step in enumerate(search_steps.STEPS, start=1):
             print(f'{number:2d}. {step.code:<10} {step.title}')
         return 0
+    if args.explain:
+        return explain()
     if args.playlist_title:
         # One read-only API call, for the run page. Never fails the job.
         try:
@@ -1512,6 +1606,7 @@ def main():
     fatal_reason = None
     playlist = {'id': '', 'title': 'YouTube playlist', 'channel': '', 'url': ''}
     client = Client(0)
+    client.keep_evidence = args.save_explain
     batch_size = BATCH_MAX
     try:
         delay = float(os.environ.get('REQUEST_DELAY_SECONDS', '2'))

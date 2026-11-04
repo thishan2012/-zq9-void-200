@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-11-04 (ALBUM / PART / POPULAR + `--explain`)
+
+### Three more steps (19 in total) - for the songs that Spotify *does* have
+
+Run #5 skipped 7 songs; 6 of them are on Spotify, our checks simply refused every search result:
+
+| # | Code | What it does | Example |
+|---|---|---|---|
+| 16 | `ALBUM` | the version/naming lives on the **album** (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album |
+| 17 | `PART` | Spotify splits a song into `Pt. 1` / `Pt. 2` - still the same song | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
+| 18 | `POPULAR` | one title, several identical entries → the **most played** (a real tie or no play count → still skipped) | duplicate uploads |
+
+`TOPRESULT` stays the last resort, now step **19**. The rules did not get looser: `version_ok()` and
+`artist_ok()` still decide, a slowed video is only ever added as that slowed edit, and a title that does
+not match is never accepted for being popular. `MATCHER_VERSION` is now **4**, so songs remembered as
+skipped get one more try with the three new steps.
+
+### `--explain`: why was this song skipped?
+
+```bash
+export SPOTIFY_COOKIE_FILE=~/cookies/sp_dc.txt
+.venv/bin/python -m syncer.app --explain
+```
+
+Searches every remembered skip again (read-only - nothing is added, the database is not written) and
+prints the parsed title, what `STRICT`/`LOOSE` returned, the query of every step that ran with its top
+three results, and a verdict (`MATCH PART` = the song is there and this step finds it now; `still no
+match` = Spotify has nothing that fits). The first 25 skips are shown.
+`--save-explain` on a normal run stores the rejected results in the database, so `--explain` can show
+them later without searching again.
+
+Dates: `2026-11-04`.
+
 ## 2026-11-04 (fix + last resort)
 
 ### Fixed: the run stopped while building the summary
@@ -13,7 +46,7 @@ When every other step misses, the **first Spotify result** for the video title i
 three checks pass: the words of the video title really appear in the track title (`same_song_title()`),
 the recording is the same version (`version_ok()`), and there is no artist conflict (`artist_ok()`).
 It is the last step in the chain, so it can only ever catch songs the other fifteen could not place.
-`MATCHER_VERSION` is now **3**, so songs remembered as skipped get one more try.
+`MATCHER_VERSION` was **3** at that point, so songs remembered as skipped get one more try.
 
 ## 2026-11-04 (search steps)
 

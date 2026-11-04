@@ -87,10 +87,26 @@ def name_matches(expected, track, floor=.93):
     return left == right or SequenceMatcher(None, left, right).ratio() >= floor
 
 
+def strip_version_words(text):
+    """Remove version words, so a title can be compared with a version label."""
+    words = [word for word in app.canonical_track_title(text).split() if word not in EMPTY_WORDS]
+    return ' '.join(words)
+
 def one_of(candidates):
-    """The single candidate, or None when it is ambiguous."""
+    """The single candidate, or None when it is ambiguous.
+
+    Two entries with the same title *and* the same artists are the same song on
+    different albums - that is not ambiguity, so the first one is used.
+    """
     items = unique(candidates)
-    return items[0] if len(items) == 1 else None
+    if len(items) == 1:
+        return items[0]
+    if len(items) > 1:
+        def fingerprint(track):
+            return (app.normalized(track_title(track)), tuple(sorted(track_artists(track))))
+        if len({fingerprint(track) for track in items}) == 1:
+            return items[0]
+    return None
 
 
 # Words that carry no identity when comparing titles.
@@ -141,7 +157,14 @@ class Step:
     def search(self, client, token, artist, title):
         """One Spotify query (the client caches identical queries per run)."""
         self.searches.append((artist, title))
-        return client.search(artist, title, token)
+        results = client.search(artist, title, token)
+        if self.state.get('keep_evidence'):
+            # For --explain: what this query returned, and whether it was refused.
+            self.state.setdefault('tries', []).append({
+                'step': self.code, 'query': ' '.join(part for part in (artist, title) if part),
+                'results': [(item.get('name', ''), ', '.join(a.get('name', '') for a in item.get('artists', [])))
+                            for item in (results or [])[:3]]})
+        return results
 
     def applies(self):
         return True
@@ -447,6 +470,97 @@ class TopResultStep(Step):
         return first
 
 
+class AlbumAwareStep(Step):
+    code = 'ALBUM'
+    title = 'Spotify album/track naming taken into account ("X, Pt. 2", "X - Single")'
+
+    def run(self, client, token):
+        song = app.strip_marketing(self.version_text)
+        candidates = []
+        for artist in app.channel_names(self.parsed, self.video)[:2] + ['']:
+            candidates += self.search(client, token, artist, song)
+        keep = [track for track in self.version_checked(candidates)
+                if name_matches(song, track, floor=.85) and artist_ok(self, track)]
+        # When two tracks carry the same title, the album name breaks the tie:
+        # "(Slowed)" edits usually live on a single called "… - Slowed".
+        if len(keep) > 1 and 'slowed' in app.version_tokens(self.version_text):
+            slowed = [track for track in keep if 'slowed' in app.version_tokens(track.get('name', '')
+                                                                            + ' ' + track.get('album', ''))]
+            keep = slowed or keep
+        return one_of(keep)
+
+
+class PartSuffixStep(Step):
+    code = 'PART'
+    title = 'Spotify split titles ("Song, Pt. 2", "Song (Pt. 1)") treated as the same song'
+
+    # "Song, Pt. 2", "Song (Pt. 1)", "Song pt 2": the comma and an opening
+    # bracket go with it, so the remaining title still compares cleanly.
+    # The bracket that wrapped the part number goes too ("Song (Pt. 1)"), but a
+    # bracket that opens a different phrase must survive ("(feat. X)").
+    PART = re.compile(r'[,]?\s*[\[(]?\s*(?:pt|part)\.?\s*\d+\s*[\])]?', re.I)
+
+    def run(self, client, token):
+        song = self.PART.sub(' ', app.strip_marketing(self.version_text)).strip()
+        if not song or app.normalized(song) == app.normalized(self.version_text):
+            base = app.strip_marketing(self.version_text)
+        else:
+            base = song
+        candidates = []
+        for artist in app.channel_names(self.parsed, self.video)[:2] + ['']:
+            candidates += self.search(client, token, artist, base)
+        # The version belongs to the video title; Spotify's split release often
+        # carries it on the album instead of the track name, so compare versions
+        # with the album included and the part number removed. The part number
+        # itself is ignored on both sides.
+        expected_version = app.version_signature(app.canonical_track_title(self.version_text))
+        keep = []
+        for track in candidates:
+            text = app.canonical_track_title(f"{track.get('name', '')} {track.get('album', '')}")
+            if app.version_signature(text) != expected_version:
+                continue
+            # Drop the part number from the raw name first, then normalise.
+            stripped = app.canonical_track_title(self.PART.sub(' ', track.get('name', '')).strip())
+            stripped = self.PART.sub(' ', stripped).strip()
+            # The version words were checked against name + album above, so the
+            # name comparison here ignores them (canonical keeps version words).
+            plain = app.search_core(base) if app.search_core(base) else app.normalized(base)
+            candidate = {'name': stripped, 'artists': track.get('artists', [])}
+            if (name_matches(plain, candidate, floor=.92)
+                    or app.ascii_fold(strip_version_words(stripped)) == app.ascii_fold(
+                        app.canonical_track_title(app.search_core(base)))) \
+                    and artist_ok(self, track):
+                keep.append(track)
+        return one_of(keep)
+
+
+class PopularRankStep(Step):
+    code = 'POPULAR'
+    title = 'Final tie-break: among equally good matches, the most played Spotify track'
+
+    def run(self, client, token):
+        song = app.strip_marketing(self.version_text)
+        candidates = []
+        for artist in app.channel_names(self.parsed, self.video)[:2] + ['']:
+            candidates += self.search(client, token, artist, song)
+        good = [track for track in self.version_checked(candidates)
+                if name_matches(song, track, floor=.88) and artist_ok(self, track)]
+        if not good:
+            return None
+        # Only exact-title matches compete; popularity never overrides the name.
+        exact = [track for track in good if name_matches(song, track, floor=.97)] or good
+        # Identical name + artists on several albums are the same song: the most
+        # played edition is the best pick, so rank them rather than refusing.
+        ranked = sorted(unique(exact), key=lambda track: track.get('popularity') or 0, reverse=True)
+        if len(ranked) == 1:
+            return ranked[0]
+        if not ranked[0].get('popularity'):
+            return None            # nothing to rank by: still ambiguous
+        if (ranked[1].get('popularity') or 0) == ranked[0].get('popularity'):
+            return None            # a real tie stays a skip
+        return ranked[0]
+
+
 STEPS = (
     ReversedCreditStep,      # 1
     SingleArtistStep,        # 2
@@ -463,7 +577,10 @@ STEPS = (
     WordSetStep,             # 13
     SlowStep,                # 14
     UploaderSearchStep,      # 15
-    TopResultStep,           # 16  (always last: the least certain step)
+    AlbumAwareStep,          # 16
+    PartSuffixStep,          # 17
+    PopularRankStep,         # 18
+    TopResultStep,           # 19  (always last: the least certain step)
 )
 
 
@@ -480,12 +597,19 @@ def build_steps(video, parsed, state):
     return built
 
 
-def search_more(client, video, parsed, token, state):
+# Codes of the three original methods, so --explain can show them as well.
+CLASSIC = ('STRICT', 'LOOSE', 'DETAIL')
+
+def search_more(client, video, parsed, token, state, keep_evidence=False):
     """Run the extra steps in order. Returns (track, step code) or (None, None).
 
     A step that hits a network error is skipped instead of stopping the run, and
     the codes that were tried are kept in `state['tried']` for the report.
+    With `keep_evidence`, every query and its first results are kept for
+    `--explain`.
     """
+    if keep_evidence:
+        state['keep_evidence'] = True
     tried = state.setdefault('tried', [])
     for step in build_steps(video, parsed, state):
         try:
