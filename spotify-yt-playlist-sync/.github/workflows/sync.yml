@@ -3,9 +3,10 @@ name: YouTube to Spotify sync
 # One-way sync: a public/unlisted YouTube playlist is the source of truth and
 # tracks are only ever ADDED to the Spotify playlist. Nothing is deleted.
 #
-# Reference copy. GitHub only reads .github/workflows/ at the repository root,
-# so the workflow that really runs is the root copy; this file is here for
-# reading inside the project folder. Keep the two in sync if you edit them.
+# This file MUST stay at the repository root (.github/workflows/). GitHub only
+# reads workflow files from there, so the copy inside the project folder
+# (spotify-yt-playlist-sync/.github/workflows/sync.yml) never shows up in the
+# Actions tab. Keep the two in sync if you edit them.
 #
 # Configuration (no secret values are ever written into this file):
 #   secrets.YOUTUBE_API_KEY        YouTube Data API v3 key (read-only usage)
@@ -107,14 +108,22 @@ jobs:
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
           SYNC_ENABLED: ${{ vars.SYNC_ENABLED }}
+          # Only the playlist name is read here (one read-only API call).
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          YOUTUBE_PLAYLIST: ${{ secrets.YOUTUBE_PLAYLIST || vars.YOUTUBE_PLAYLIST || 'https://www.youtube.com/playlist?list=REPLACE_WITH_YOUR_YOUTUBE_PLAYLIST_ID' }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
             MODE='DRY RUN — Spotify untouched (only skip/failure bookkeeping is saved)'
           else
             MODE='LIVE SYNC — tracks added, database committed'
           fi
+          NAME=$(python -m syncer.app --playlist-title 2>/dev/null || true)
           {
             echo "### YouTube → Spotify: $MODE"
+            if [ -n "$NAME" ]; then
+              echo
+              echo "**Playlist:** $NAME"
+            fi
             echo
             echo "| Setting | Value |"
             echo "|---|---|"

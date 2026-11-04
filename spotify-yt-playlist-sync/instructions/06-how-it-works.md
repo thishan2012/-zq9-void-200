@@ -63,6 +63,15 @@ Fail closed: playlist එක කියවන්න බැරි නම් run �
 - `canonical_track_title()`: `(Official Video)`, `(Lyrics)` අයින් වෙනවා — **ඒත් `(Official Video - Slowed)` එකේ `Slowed` ඉතුරු වෙනවා**
 - Result 2ක් සමාන නම් → **skip** (අහඹුවට තෝරන්නේ නෑ)
 
+## 5b. Playlist නම
+
+```python
+playlist = client.youtube_playlist(key, yt)   # playlists.list?part=snippet
+# {'title': '…', 'channel': '…', 'url': 'https://www.youtube.com/playlist?list=…'}
+LOG.info('Playlist: %s — %s', playlist['title'], playlist['url'])
+```
+Spotify playlist එකේ නම එකම නිසා YouTube එකේ නම විතරයි ගන්නේ (extra Spotify request නෑ). Summary + log header + Job summary ඔක්කොම මේ නමින් පටන් ගන්නවා.
+
 ## 6. `sync()` — සින්දුවකට
 
 ```

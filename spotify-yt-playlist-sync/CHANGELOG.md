@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-11-04 (newest)
+
+### The playlist name and link are in the report
+
+* One extra read-only YouTube Data API call (`playlists.list?part=snippet`) before the items are read gives
+  the playlist **name**, channel and public link. The Spotify playlist has the same name, so that is not
+  fetched separately.
+* Telegram summary now opens with `Playlist: <name>` + the playlist link; the per-song log header repeats
+  it on one line (`Playlist: <name> — <link>`), so an old report is still identifiable.
+* The Actions log line is `Playlist: <name> — <link>`, and the Job summary shows `**Playlist:** <name> — <link>`
+  (new `python -m syncer.app --playlist-title`, one read-only call, never fails the job).
+* A private/renamed/missing playlist now fails with a clear message instead of an empty run.
+
 ## 2026-11-04 (latest)
 
 ### A song is reported at most twice, then remembered in the database

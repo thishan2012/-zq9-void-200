@@ -191,6 +191,22 @@ class Client:
             return data['accessToken']
         raise FatalError('Spotify rejected the available TOTP versions; the unofficial login flow may have changed')
 
+    def youtube_playlist(self, key, playlist):
+        """Read the playlist's own metadata: title, channel and public link."""
+        data = self.request('GET', 'https://www.googleapis.com/youtube/v3/playlists',
+                            params={'part': 'snippet', 'id': playlist, 'key': key},
+                            fatal=True, label='YouTube playlist name')
+        items = data.get('items') if isinstance(data, dict) else None
+        if not isinstance(items, list) or not items:
+            raise FatalError('YouTube playlist not found (or it is private); check YOUTUBE_PLAYLIST')
+        snippet = items[0].get('snippet') or {}
+        if not isinstance(snippet, dict):
+            snippet = {}
+        return {'id': playlist,
+                'title': log_text(snippet.get('title') or '') or 'YouTube playlist',
+                'channel': log_text(snippet.get('channelTitle') or ''),
+                'url': f'https://www.youtube.com/playlist?list={playlist}'}
+
     def youtube(self, key, playlist):
         videos = []
         page = None
@@ -1245,20 +1261,35 @@ def main():
                              '(no Spotify change, no database change). Also enabled by DRY_RUN=true.')
     parser.add_argument('--db-summary', action='store_true',
                         help='print a markdown summary of the sync database and exit')
+    parser.add_argument('--playlist-title', action='store_true',
+                        help='print the YouTube playlist name and its link, then exit')
     args = parser.parse_args()
     if args.db_summary:
         print(db_summary(STATE_PATH), end='')
         return 0
+    logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+    if args.playlist_title:
+        # One read-only API call, for the run page. Never fails the job.
+        try:
+            client = Client(0)
+            name = client.youtube_playlist(
+                os.environ.get('YOUTUBE_API_KEY', ''),
+                playlist_id(os.environ.get('YOUTUBE_PLAYLIST', ''), 'YouTube'))
+        except (FatalError, ValueError) as exc:
+            LOG.info('Playlist name unavailable: %s', exc)
+            return 0
+        print(f"{name['title']} — {name['url']}")
+        return 0
     # The workflow sets DRY_RUN, so the same switch works locally and in Actions.
     if os.environ.get('DRY_RUN', '').strip().lower() == 'true':
         args.dry_run = True
-    logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
     if args.dry_run:
         LOG.info('DRY RUN: nothing will be written to Spotify and the database will not change')
     counts = {'add': 0, 'skip': 0, 'fail': 0}
     issues = []
     result = 'SUCCESS'
     fatal_reason = None
+    playlist = {'id': '', 'title': 'YouTube playlist', 'channel': '', 'url': ''}
     client = Client(0)
     batch_size = BATCH_MAX
     try:
@@ -1277,6 +1308,9 @@ def main():
         state = load_state(STATE_PATH)
         overrides = load_overrides(OVERRIDES_PATH)
         cookie = sp_dc_from_file(os.environ.get('SPOTIFY_COOKIE_FILE', 'cookies/spotify.txt'))
+        playlist = client.youtube_playlist(key, yt)
+        # The Spotify playlist has the same name, so the YouTube one is enough.
+        LOG.info('Playlist: %s — %s', playlist['title'], playlist['url'])
         videos = client.youtube(key, yt)
         token = client.token(cookie)
         sync(client, videos, spotify, token, state, args.dry_run, counts, overrides=overrides,
@@ -1297,16 +1331,19 @@ def main():
             save_deferred(args.dry_run)
         except OSError:
             LOG.error('Could not save the skip/failure bookkeeping')
-        summary = (f"YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n"
+        name_line = f"Playlist: {playlist['title']}\n{playlist['url']}\n\n" if playlist.get('url') else ''
+        summary = (f"{name_line}YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n"
                    f"{'Would add' if args.dry_run else 'Added'}: {counts['add']} | "
                    f"Skipped: {counts['skip']} | Failed: {counts['fail']}")
         if fatal_reason:
             summary += f'\nRun stopped: {issue_text(fatal_reason)}'
-        LOG.info(summary)
+        LOG.info(summary.replace('\n\nPlaylist', '\nPlaylist'))
         events = [dict(event, n=number) for number, event in enumerate(issues, start=1)]
         LOG.info('Full report: %d event(s)', len(events))
         mode = 'DRY RUN' if args.dry_run else 'SYNC'
         header = f'YouTube → Spotify log ({mode}): {len(events)} song(s) to report'
+        if playlist.get('url'):
+            header += f"\nPlaylist: {playlist['title']} — {playlist['url']}"
         reports = [summary_message(summary, events)]
         if events:
             reports += activity_messages(header, events)

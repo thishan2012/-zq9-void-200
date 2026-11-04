@@ -203,6 +203,9 @@ class DryRunSwitchTests(unittest.TestCase):
         self.addCleanup(self.patch.stop)
         self.client = Mock()
         self.client.youtube.return_value = [{'id': 'AAAAAAAAAAA', 'title': 'Artist - No Match', 'channel': 'U'}]
+        self.client.youtube_playlist.return_value = {
+            'id': 'playlist', 'title': 'Viral Phonk', 'channel': 'Thishan',
+            'url': 'https://www.youtube.com/playlist?list=playlist'}
         self.client.existing_tracks.return_value = set()
         self.client.search.return_value = []
         self.env = {'YOUTUBE_PLAYLIST': 'playlist', 'SPOTIFY_PLAYLIST': 'a' * 22, 'YOUTUBE_API_KEY': 'key'}
@@ -224,6 +227,10 @@ class DryRunSwitchTests(unittest.TestCase):
         report = '\n\n'.join(self.client.telegram_many.call_args.args[2])
         self.assertIn('DRY RUN', report)
         self.assertIn('Would add: 0', report)
+        # The playlist name and its link lead both the summary and the log.
+        self.assertEqual(self.client.telegram_many.call_args.args[2][0].splitlines()[:2],
+                         ['Playlist: Viral Phonk', 'https://www.youtube.com/playlist?list=playlist'])
+        self.assertIn('Playlist: Viral Phonk', self.client.telegram_many.call_args.args[2][1].splitlines()[1])
         # A dry run writes no added song, but the skip is remembered so the next
         # run stays quiet (this is what stops a song being logged every run).
         db = app.load_state(self.path)['playlists']['a' * 22]

@@ -58,6 +58,9 @@ awk -F'\t' '$6=="sp_dc"{print "sp_dc found, length", length($7)}' cookies/spotif
 # database summary (saved songs per playlist)
 python -m syncer.app --db-summary
 
+# playlist name + link (YouTube API එකෙන්, read-only)
+python -m syncer.app --playlist-title
+
 # state backup
 cp data/sync-state.json ~/sync-state-$(date +%F).json
 

@@ -21,6 +21,10 @@ class Client:
         self.added = []
         self.searches = []
 
+    def youtube_playlist(self, key, playlist):
+        return {'id': playlist, 'title': 'Viral Phonk', 'channel': 'Thishan',
+                'url': f'https://www.youtube.com/playlist?list={playlist}'}
+
     def existing_tracks(self, playlist, token):
         return self.existing.copy()
 
@@ -152,6 +156,39 @@ class RememberedTests(unittest.TestCase):
         self.assertEqual(self.state['matcher'], app.MATCHER_VERSION)
         counts, issues, _ = self.run_sync([NO_MATCH])
         self.assertEqual((counts['skip'], issues), (0, []))
+
+    def test_playlist_name_comes_from_the_api(self):
+        client = app.Client(0)
+        client.request = lambda *a, **k: {'items': [{'snippet': {'title': 'Viral Phonk / Slowed',
+                                                                  'channelTitle': 'Thishan'}}]}
+        name = client.youtube_playlist('key', 'PLabc123')
+        self.assertEqual(name, {'id': 'PLabc123', 'title': 'Viral Phonk / Slowed', 'channel': 'Thishan',
+                                'url': 'https://www.youtube.com/playlist?list=PLabc123'})
+
+    def test_playlist_name_falls_back_to_a_generic_title(self):
+        client = app.Client(0)
+        client.request = lambda *a, **k: {'items': [{'snippet': {}}]}
+        self.assertEqual(client.youtube_playlist('key', 'PLabc123')['title'], 'YouTube playlist')
+
+    def test_a_missing_playlist_is_a_clear_error(self):
+        client = app.Client(0)
+        client.request = lambda *a, **k: {'items': []}
+        with self.assertRaises(app.FatalError) as caught:
+            client.youtube_playlist('key', 'PLabc123')
+        self.assertIn('YOUTUBE_PLAYLIST', str(caught.exception))
+
+    def test_playlist_title_flag_prints_name_and_link(self):
+        import contextlib
+        import io
+        import sys
+        client = Client()
+        buf = io.StringIO()
+        env = {'YOUTUBE_API_KEY': 'key', 'YOUTUBE_PLAYLIST': 'https://www.youtube.com/playlist?list=PLabc123'}
+        with patch.object(app, 'Client', return_value=client), patch.dict('os.environ', env, clear=True), \
+             patch.object(sys, 'argv', ['app', '--playlist-title']), contextlib.redirect_stdout(buf):
+            self.assertEqual(app.main(), 0)
+        self.assertEqual(buf.getvalue().strip(),
+                         'Viral Phonk — https://www.youtube.com/playlist?list=PLabc123')
 
     def test_skipped_entries_are_tiny(self):
         self.run_sync([NO_MATCH])

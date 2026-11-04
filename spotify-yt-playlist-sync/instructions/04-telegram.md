@@ -22,7 +22,10 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 ## 3. ඔයාට එන messages — **උපරිම 6ක්** (spam guard)
 
 ```text
-[1] Summary  ← "Skipped" ගණන මෙතනින් explain වෙනවා
+[1] Summary  ← playlist නම + link එක මුලින්ම, ඊට පස්සේ "Skipped" ගණනේ විස්තරය
+    Playlist: Viral Phonk / Slowed
+    https://www.youtube.com/playlist?list=PL…
+
     YouTube → Spotify DRY RUN: SUCCESS
     Would add: 36 | Skipped: 5 | Failed: 0
 
@@ -34,6 +37,7 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 
 [2..6] Per-song log (compact, 1 line per song)
     YouTube → Spotify log (DRY RUN): 36 song(s) to report
+    Playlist: Viral Phonk / Slowed — https://www.youtube.com/playlist?list=PL…
 
     #1 SKIP: Artist - Song — youtu.be/xxxxxxxxxxx · No confident artist/title/version match
     #6 WOULD ADD: Artist - Song — youtu.be/xxxxxxxxxxx · STRICT · open.spotify.com/track/…
@@ -55,6 +59,14 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 Telegram send fail වුණොත් (no secrets / blocked / rate limit) **ඒ report එකම Actions log එකට print වෙනවා** — කිසි දෙයක් නැති වෙන්නේ නෑ.
 
 (Actions log එකේ තවම හැම සින්දුවකටම `ADD/WOULD ADD/SKIP/FAIL` line එකක් තියෙනවා — debug කරන්න ඕන නම් ඒක බලන්න.)
+
+## 3b. Playlist නම එන්නේ කොහෙන්ද
+
+`youtube_playlist()` එකෙන් **YouTube Data API** එකට `playlists.list?part=snippet` කියලා එක read-only request එකක් යනවා (items ගන්න කලින්ම). ඒකෙන් එන `snippet.title` + `snippet.channelTitle` තමයි නම විදිහට පාවිච්චි කරන්නේ, link එක `https://www.youtube.com/playlist?list=<id>`.
+
+- Spotify playlist එකට **එකම නම** තියෙන නිසා YouTube එකේ නම විතරයි ගන්නේ (Spotify name එකට තව request එකක් යන්නේ නෑ)
+- Playlist එක private/delete වෙලා නම් → `YouTube playlist not found (or it is private); check YOUTUBE_PLAYLIST` කියලා run එක පැහැදිලිව නවතිනවා
+- පේරන page එකේ **Job summary** එකේත් `**Playlist:** <name> — <link>` පේනවා (`python -m syncer.app --playlist-title`)
 
 ## 4. Secrets නැති නම්
 
