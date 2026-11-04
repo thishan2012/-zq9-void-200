@@ -93,6 +93,34 @@ def one_of(candidates):
     return items[0] if len(items) == 1 else None
 
 
+# Words that carry no identity when comparing titles.
+EMPTY_WORDS = {'the', 'a', 'an', 'of', 'and', 'feat', 'ft', 'slowed', 'sped', 'up', 'reverb',
+               'super', 'ultra', 'over', 'extra', 'nightcore', '8d', 'remix', 'mix', 'edit',
+               'version', 'official', 'music', 'video', 'audio', 'lyrics'}
+
+def same_song_title(step, track, floor=.80):
+    """True when the Spotify title really is the video's title.
+
+    Every meaningful word of the video title must appear in the track title
+    (word order and accents do not matter), and the two must be similar overall.
+    This is the check that stops "first search result" from adding a different
+    song that merely shares a word.
+    """
+    left = app.ascii_fold(app.canonical_track_title(app.strip_marketing(step.version_text)))
+    right = app.ascii_fold(track_title(track))
+    if not left or not right:
+        return False
+    video_words = set(left.split())
+    track_words = set(right.split())
+    meaningful = video_words - EMPTY_WORDS
+    if not meaningful:
+        meaningful = video_words
+    if not meaningful <= track_words:
+        return False
+    ratio = SequenceMatcher(None, ' '.join(sorted(video_words)), ' '.join(sorted(track_words))).ratio()
+    return ratio >= floor
+
+
 class Step:
     """One named search experiment."""
 
@@ -398,6 +426,27 @@ class UploaderSearchStep(Step):
         return one_of(keep)
 
 
+class TopResultStep(Step):
+    code = 'TOPRESULT'
+    title = 'Last resort: the first Spotify result, only when the title and version really match'
+
+    def run(self, client, token):
+        candidates = self.search(client, token, '', self.version_text)
+        if not candidates:
+            return None
+        first = candidates[0]
+        # 1. the title must really be this song (not just a shared word)
+        if not same_song_title(self, first):
+            return None
+        # 2. the version must be the same recording (slowed stays slowed)
+        if not version_ok(self.version_text, first):
+            return None
+        # 3. no artist conflict with the credit we already know
+        if not artist_ok(self, first):
+            return None
+        return first
+
+
 STEPS = (
     ReversedCreditStep,      # 1
     SingleArtistStep,        # 2
@@ -414,6 +463,7 @@ STEPS = (
     WordSetStep,             # 13
     SlowStep,                # 14
     UploaderSearchStep,      # 15
+    TopResultStep,           # 16  (always last: the least certain step)
 )
 
 

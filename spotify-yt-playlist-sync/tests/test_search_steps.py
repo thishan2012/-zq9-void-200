@@ -182,6 +182,44 @@ class WordSetStepTests(StepTestCase):
         self.assertEqual(found['id'], 't1')
 
 
+class TopResultStepTests(StepTestCase):
+    """The last resort: the first result, but only when it really is the song."""
+
+    def test_the_first_result_is_taken_when_title_and_version_match(self):
+        video_item = video('MONTAGEM ZEPHYR (Slowed)')
+        catalog = Catalog([track('first', 'Montagem Zephyr - Slowed', 'Someone'),
+                           track('second', 'Other Song', 'X')])
+        found, _ = self.run_step(search_steps.TopResultStep, video_item, catalog)
+        self.assertEqual(found['id'], 'first')
+
+    def test_a_different_song_with_one_shared_word_is_refused(self):
+        video_item = video('MONTAGEM ZEPHYR (Slowed)')
+        catalog = Catalog([track('wrong', 'Montagem Nebula - Slowed', 'X')])
+        found, _ = self.run_step(search_steps.TopResultStep, video_item, catalog)
+        self.assertIsNone(found)
+
+    def test_the_original_is_never_taken_for_a_slowed_video(self):
+        video_item = video('MONTAGEM ZEPHYR (Slowed)')
+        catalog = Catalog([track('original', 'MONTAGEM ZEPHYR', 'X')])
+        found, _ = self.run_step(search_steps.TopResultStep, video_item, catalog)
+        self.assertIsNone(found)
+
+    def test_an_artist_conflict_is_refused(self):
+        video_item = video('DESTELLO - HDN | VIRAL PHONK')
+        catalog = Catalog([track('wrong', 'HDN', 'Somebody Else')])
+        found, _ = self.run_step(search_steps.TopResultStep, video_item, catalog)
+        self.assertIsNone(found)
+
+    def test_word_order_and_accents_do_not_matter(self):
+        video_item = video('CORTA NO SALÃO (Slowed)')
+        catalog = Catalog([track('first', 'Salao Corta No - Slowed', 'X')])
+        found, _ = self.run_step(search_steps.TopResultStep, video_item, catalog)
+        self.assertEqual(found['id'], 'first')
+
+    def test_it_is_the_last_step_in_the_chain(self):
+        self.assertIs(search_steps.STEPS[-1], search_steps.TopResultStep)
+
+
 class StepChainTests(unittest.TestCase):
     def test_steps_are_skipped_when_they_do_not_apply(self):
         video_item = video('Artist - Song')
@@ -218,7 +256,7 @@ class StepChainTests(unittest.TestCase):
     def test_every_step_has_a_unique_code_and_a_title(self):
         codes = [step.code for step in search_steps.STEPS]
         self.assertEqual(len(codes), len(set(codes)))
-        self.assertGreaterEqual(len(codes), 15)
+        self.assertGreaterEqual(len(codes), 16)
         for step in search_steps.STEPS:
             self.assertTrue(step.title, step.code)
 

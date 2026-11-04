@@ -1,4 +1,4 @@
-# 🔎 13 — Extra search steps (15 වෙන වෙනම ක්‍රම)
+# 🔎 13 — Extra search steps (16 වෙන වෙනම ක්‍රම)
 
 මේ ගොනුව කියවන්නේ **"ඇයි මේ සින්දුව add වුණේ නැත්තේ?"** කියන ප්‍රශ්නයට උත්තර දෙන්න.
 පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 15 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
@@ -45,9 +45,33 @@
 | 13 | `WORDSET` | වචන එකම, පිළිවෙල වෙනස් | `Funk Midu Shange` ↔ `Midu Shange Funk` |
 | 14 | `SLOWED` | `"<song> slowed"` කියලා search — **slowed එකක් විතරයි** ගන්නේ | `FUNK ABNORMAL (SLOWED)` |
 | 15 | `UPLOADER` | uploader නම + title එක එකට search | `Slowed by X` channels |
+| 16 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
 
 **හැම step එකකුත් අන්තිමට artist conflict එක බලනවා** (`artist_ok()`): video එකේ title එකේ artist කෙනෙක් තියෙනවා නම්, Spotify track එකේ ඒ නම නැත්නම් → match එක අවිශ්වාසී, ඒ නිසා ගන්නේ නෑ.
 ඒකයි `DESTELLO - HDN` වගේ එකක් වෙන artist කෙනෙක්ගේ `HDN` එකට match වෙන්නේ නැත්තේ (Spotify එකේ DESTELLO නෑ නම් → skip).
+
+---
+
+## 2b. `TOPRESULT` — අන්තිම උත්සාහය (අනිත් හැම එකක්ම miss වුණාම)
+
+Search query එකේ **මුලින්ම එන track එක** ගන්නවා — ඒත් **පහත 3ම** සත්‍ය නම් විතරයි:
+
+| # | චෙක් එක | ඇයි |
+|---|---|---|
+| 1 | **`same_song_title()`** — video title එකේ තේරුම් තියෙන හැම වචනයක්ම Spotify track එකේ තියෙන්න ඕන (+ overall 80% සමාන) | වචනයක් විතරක් ගැලපුණු වෙන සින්දුවක් එන එක නවත්තන්න |
+| 2 | **`version_ok()`** — same recording (slowed = slowed, original/sped up/remix ❌) | වෙනස් version එකක් add වෙන එක නවත්තන්න |
+| 3 | **`artist_ok()`** — video එකේ credit කරන artist ට Spotify එකේ conflict එකක් නැත්නම් | වෙන artist කෙනෙක්ගේ එකම නම ඇති සින්දුවක් නවත්තන්න |
+
+උදාහරණ:
+
+| Video | Spotify 1st result | ප්‍රතිඵලය |
+|---|---|---|
+| `Zephyr Nights (Slowed)` | `Zephyr Nights - Slowed` | ✅ ගන්නවා |
+| `MONTAGEM ZEPHYR (Slowed)` | `Montagem Nebula - Slowed` | ❌ වචන ගැලපෙන්නේ නෑ |
+| `MONTAGEM ZEPHYR (Slowed)` | `MONTAGEM ZEPHYR` (original) | ❌ version වෙනස් |
+| `DESTELLO - HDN` | `HDN` (වෙන artist) | ❌ artist conflict |
+
+⚠️ මේක **අන්තිම step එක** — අනිත් 15ම fail වුණාට පස්සේ විතරයි දුවන්නේ. `TOPRESULT` කියලා report එකේ පේනවා නම්, ඒ line එක දෙපාරක් බලන්න (Spotify link එක open කරලා) — වැරදි නම් `data/track-overrides.json` එකෙන් හදන්න.
 
 ---
 
