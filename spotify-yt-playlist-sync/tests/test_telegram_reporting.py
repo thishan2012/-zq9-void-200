@@ -277,3 +277,44 @@ class SpamGuardTests(unittest.TestCase):
         client = app.Client(0)
         client.http.post = Mock(side_effect=app.requests.RequestException('boom'))
         self.assertFalse(client.telegram('t', 'c', 'hi', quiet=True))
+
+
+class SkipAccountingTests(unittest.TestCase):
+    """The summary must explain the whole 'Skipped: N' number."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'state.json'
+        self.patch = patch.object(app, 'STATE_PATH', self.path)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def test_every_skip_is_either_counted_or_listed(self):
+        videos = [
+            {'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song', 'channel': 'U'},       # already present
+            {'id': 'BBBBBBBBBBB', 'title': 'Artist - No Match', 'channel': 'U'},        # no match
+            {'id': 'CCCCCCCCCCC', 'title': 'Artist - Good Song', 'channel': 'U'},       # same track in run
+            {'id': 'DDDDDDDDDDD', 'title': 'Private video'},                            # unavailable
+        ]
+        issues = []
+        counts = {'add': 0, 'skip': 0, 'fail': 0}
+        app.sync(Client([TRACK]), videos, 'playlist', 'token', {'version': 1, 'playlists': {}},
+                 True, counts, issues=issues)
+        # All four are skips here: the track is already in the playlist.
+        self.assertEqual(counts['skip'], 4)
+        counted = [event for event in issues if event.get('counted') and event['status'] == 'SKIP']
+        self.assertEqual(len(counted), counts['skip'])
+        message = app.summary_message('Skipped summary', [dict(i, n=n) for n, i in enumerate(issues, 1)])
+        self.assertIn('Already synced, in the playlist, or duplicated (2)', message)
+        self.assertIn('Track already in Spotify playlist', message)
+        self.assertIn('Songs that need a look:', message)
+        self.assertIn('Unavailable or missing video title', message)
+        self.assertIn('No confident artist/title/version match', message)
+
+    def test_summary_has_no_song_list(self):
+        issues = []
+        app.report_issue(issues, 'SKIP', {'id': 'AAAAAAAAAAA', 'title': 'Artist - No Match'}, 'No match', counted=True)
+        message = app.summary_message('summary', [dict(i, n=1) for i in issues])
+        self.assertNotIn('Artist - No Match', message)
+        self.assertIn('1 × No match', message)

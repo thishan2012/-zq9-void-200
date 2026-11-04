@@ -789,13 +789,17 @@ def issue_text(value, limit=600):
     text = ''.join(ch for ch in text if ch.isprintable())
     return text if len(text) <= limit else text[:limit - 1] + '…'
 
-def report_issue(issues, status, video, reason, track_id=None, method=None, quiet=False):
-    """Record one outcome. quiet=True keeps it out of the Telegram reports."""
+def report_issue(issues, status, video, reason, track_id=None, method=None, quiet=False, counted=False):
+    """Record one outcome.
+
+    quiet=True keeps it out of the Telegram per-song log (already synced songs).
+    counted=True means the outcome is already reflected in the summary counters.
+    """
     if issues is not None:
         issues.append({'status': status, 'title': issue_text(video.get('title')) or '(title unavailable)',
                        'channel': issue_text(video.get('channel')), 'video_id': video.get('id'),
                        'reason': issue_text(reason), 'track_id': track_id, 'method': method,
-                       'quiet': quiet})
+                       'quiet': quiet, 'counted': counted})
 
 def utf16_chunks(text, limit=4000):
     """Split plain text on line boundaries so Telegram limits are never exceeded."""
@@ -832,24 +836,31 @@ def skip_breakdown(events):
 
 
 def summary_message(summary, events):
-    """One compact message: counts plus why songs were skipped, no per-song list."""
+    """One compact message: counts, why songs were skipped, and the silent ones."""
+    def counted(reasons):
+        totals = {}
+        for event in events:
+            if event['status'] in ('ADD', 'WOULD ADD') or not event.get('counted'):
+                continue
+            if reasons is not None and event['reason'] not in reasons:
+                continue
+            totals[event['reason']] = totals.get(event['reason'], 0) + 1
+        return totals
+
     lines = [summary]
-    quiet = skip_breakdown(events)
+    quiet = counted({reason for reason, event in ((e['reason'], e) for e in events) if event.get('quiet')})
+    reported = counted(None)
+    for reason in quiet:
+        reported.pop(reason, None)
     if quiet:
-        lines.append('')
-        lines.append(f'Already synced / already in the playlist ({sum(quiet.values())}), saved to the database:')
+        lines += ['', f'Already synced, in the playlist, or duplicated ({sum(quiet.values())}) — '
+                      'saved to the database, not listed:']
         lines += [f'  • {number} × {reason}' for reason, number in sorted(quiet.items())]
-    reasons = {}
-    for event in events:
-        if event['status'] in ('ADD', 'WOULD ADD') or event.get('quiet'):
-            continue
-        reasons[event['reason']] = reasons.get(event['reason'], 0) + 1
-    if reasons:
-        lines.append('')
-        lines.append('Songs that did not go in:')
-        lines += [f'  • {number} × {reason}' for reason, number in sorted(reasons.items(), key=lambda item: -item[1])]
-    lines.append('')
-    lines.append('Per-song details follow.')
+    if reported:
+        lines += ['', 'Songs that need a look:']
+        lines += [f'  • {number} × {reason}'
+                  for reason, number in sorted(reported.items(), key=lambda item: -item[1])]
+    lines += ['', 'Per-song details follow.']
     return '\n'.join(lines)
 
 
@@ -1004,19 +1015,19 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
         if vid in db['videos']:
             counts['skip'] += 1
             report_issue(issues, 'SKIP', video, 'Already recorded in the sync database', db['videos'][vid],
-                         quiet=True)
+                         quiet=True, counted=True)
             LOG.info('SKIP %s: already recorded', vid)
             continue
         if vid in seen:
             # The same video appears twice in the YouTube playlist.
             counts['skip'] += 1
-            report_issue(issues, 'SKIP', video, 'Duplicate video in the YouTube playlist', quiet=True)
+            report_issue(issues, 'SKIP', video, 'Duplicate video in the YouTube playlist', quiet=True, counted=True)
             LOG.info('SKIP %s: duplicate video in the YouTube playlist', vid)
             continue
         seen.add(vid)
         if video['title'].strip().casefold() in ('', 'private video', 'deleted video'):
             counts['skip'] += 1
-            report_issue(issues, 'SKIP', video, 'Unavailable or missing video title')
+            report_issue(issues, 'SKIP', video, 'Unavailable or missing video title', counted=True)
             LOG.info('SKIP %s: unavailable or missing video title', vid)
             continue
         tid = None
@@ -1044,7 +1055,7 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                     method = 'DETAIL'
                 if not track:
                     counts['skip'] += 1
-                    report_issue(issues, 'SKIP', video, 'No confident artist/title/version match')
+                    report_issue(issues, 'SKIP', video, 'No confident artist/title/version match', counted=True)
                     LOG.info('SKIP %s: no confident artist/title/version match (video: %s)', vid, log_text(video['title']))
                     continue
                 tid = track['id']
@@ -1054,12 +1065,13 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 # Two videos resolved to the same track: add it only once.
                 counts['skip'] += 1
                 reason = 'Same track already planned in this dry run' if dry_run else 'Same track already planned in this run'
-                report_issue(issues, 'SKIP', video, reason, tid, method)
+                report_issue(issues, 'SKIP', video, reason, tid, method, counted=True)
                 LOG.info('SKIP %s: %s', vid, reason)
                 continue
             if tid in existing:
                 counts['skip'] += 1
-                report_issue(issues, 'SKIP', video, 'Track already in Spotify playlist', tid, method, quiet=True)
+                report_issue(issues, 'SKIP', video, 'Track already in Spotify playlist', tid, method,
+                             quiet=True, counted=True)
                 LOG.info('SKIP %s: track already in Spotify playlist', vid)
                 if not dry_run:
                     db['videos'][vid] = tid
