@@ -214,16 +214,19 @@ python -m syncer.app --stats
 
 **`PLUZA…`** — saved 41, skipped 3, matched 89
 
-| # | Method | Songs | Share | Kind |
-|---|---|---|---|---|
-| 1 | `STRICT` | **70** | 79% | classic |
-| 2 | `LOOSE`  | **9**  | 10% | classic |
-| 3 | `SUFFIX` | **4**  |  4% | extra step |
+| # | Method | Songs | Share | Queries sent | Kind |
+|---|---|---|---|---|---|
+| 1 | `STRICT` | **70** | 79% | 157 | classic |
+| 2 | `LOOSE`  | **9**  | 10% | 10 | classic |
+| 3 | `SUFFIX` | **4**  |  4% | cached | extra step |
 …
-Never matched: `REVERSED`, `SINGLE`, `SHORT`, …
+Tried but never won: `REVERSED`, `SINGLE`, `SHORT`, …
+Never tried (its condition never applied to these videos): `ISRC`, `LINKED`, …
 ```
 
 * මේකෙන් පේනවා **කුමන steps වැඩ කරනවද** කියලා → පස්සේ step කපනවද නැද්ද කියලා data එකෙන් තීරණය කරන්න.
+* **`Queries sent`**: `cached` කියන්නේ step එක වැඩ කළා, ඒත් ඒ queries run cache එකේ තිබ්බා (අලුත් request එකක් ගියේ නෑ) කියලා. `—` කියන්නේ ඇත්තටම දුවලා නෑ.
+* **`matched … (all runs so far, dry runs included)`** — මේක **history** එකක්, මේ run එකේ ගණන නෙවෙයි. ඒ නිසා `matched` > `saved` වෙන්න පුළුවන් (dry run + live run දෙකම එකතු වෙනවා).
 * **`Queries sent`** (හා `ran` tally) — step එක **කීප වතාවක් search කළාද** කියන එක. ඒක නැතුව "Songs found = 0" කියන්නේ "මේක මළ step එකක්" කියලා **වැරදියට** තේරෙනවා; ඇත්තටම `SONGTAG` වගේ steps හැම run එකකම search කරනවා, ඒත් ඉන්න කලින් step එකක් ජය ගන්නවා.
   - **Tried but never won** → කපන්න සුදුසුකම් ලබන steps
   - **Never tried (its condition never applied)** → මේ videos වලට අදාළම නැති steps (කපන්න එපා)

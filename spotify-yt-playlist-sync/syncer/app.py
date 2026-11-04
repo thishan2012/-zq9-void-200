@@ -1363,11 +1363,16 @@ def save_state(path, state):
 DRY_STATE = {}
 
 def save_skip_changes(state, dry_run):
-    """Skip/failure bookkeeping: saved at once in a live run, at the end in a dry run."""
+    """Persist the skip/failure bookkeeping.
+
+    A dry run keeps it in memory (written once at the end, so an aborted preview
+    leaves the file alone); a live run writes immediately, because those counters
+    are the only record that the run did anything when it added no song.
+    """
     if dry_run:
         DRY_STATE[STATE_PATH] = state
-    else:
-        save_state(STATE_PATH, state)
+        return
+    save_state(STATE_PATH, state)
 
 def save_deferred(dry_run):
     """Write the bookkeeping gathered during a dry run, so the next run goes quiet."""
@@ -2108,8 +2113,12 @@ def stats_report(path, title='Match statistics', limit=40):
         ran = step_runs(db)
         saved = len(db.get('videos') or {})
         skipped = len(db.get('skipped') or {}) if isinstance(db.get('skipped'), dict) else 0
+        matches = sum(value for value in counts.values() if isinstance(value, int))
+        # These numbers are the whole history, not this run: the live run and the
+        # dry run that previewed it each add to the tally, so "matched" can be
+        # larger than "saved" without anything being wrong.
         lines += [f'**`{playlist}`** — saved {saved}, skipped {skipped}, '
-                  f'matched {sum(value for value in counts.values() if isinstance(value, int))}', '']
+                  f'matched {matches} (all runs so far, dry runs included)', '']
         if not counts and not worked:
             lines += ['No match recorded yet (the tally starts with the next run).', '']
             continue
@@ -2128,14 +2137,23 @@ def stats_report(path, title='Match statistics', limit=40):
             kind = ('classic' if code in ('STRICT', 'LOOSE', 'DETAIL')
                     else 'manual' if code == 'MANUAL' else 'extra step')
             share = f'{value * 100 / total:.0f}%' if value else '—'
+            if spent:
+                queries = str(spent)
+            elif value or ran.get(code):
+                # Tried, but every query came from the run cache: real work
+                # happened, just not a new request.
+                queries = 'cached'
+            else:
+                queries = '—'
             lines.append(f'| {number} | `{code}` | **{value}** | {share} | '
-                         f'{spent or "—"} | {kind} |')
+                         f'{queries} | {kind} |')
         lines.append('')
         # "Never matched" alone was read as "this step is dead". A step that does
         # search every run but never wins is a *candidate* for removal; a step
         # that never even ran means its condition never applies to these videos.
         never_won = [step.code for step in search_steps.STEPS
-                     if step.code not in counts and (worked.get(step.code) or 0) > 0]
+                     if step.code not in counts
+                     and ((worked.get(step.code) or 0) > 0 or (ran.get(step.code) or 0) > 0)]
         never_ran = [step.code for step in search_steps.STEPS
                      if step.code not in counts and not (ran.get(step.code) or 0)]
         if never_won:
