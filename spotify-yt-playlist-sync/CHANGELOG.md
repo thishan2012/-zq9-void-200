@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-11-04 (the database commit has a name now)
+
+Every run commits `data/sync-state.json`, and the history said `github-actions[bot]` - which says nothing
+about what happened. The commit is now made as **`thishcrvwqe-bot`**.
+
+* `vars.COMMIT_NAME` (default `thishcrvwqe-bot`) and `vars.COMMIT_EMAIL` (default the built-in bot's
+  address) control it, and the run log prints the committer it used.
+* The email has to stay the bot's: GitHub only accepts a push from the workflow's built-in token when the
+  commit is attributed to that account. To use a personal address instead, the push needs a personal access
+  token - not needed for this.
+
 ## 2026-11-04 (credit splitting fix behind the 17 wasted `REVERSED` searches)
 
 The first clean live run showed `REVERSED` spending **17 real queries and winning nothing**, and
