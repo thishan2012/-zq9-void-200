@@ -114,7 +114,7 @@ matching searches), well inside the 180-minute job timeout.
   commits it after each live run, and every run prints a `🗄️ Database` table (saved songs per playlist)
   in its Job summary. Check it locally with `python -m syncer.app --db-summary`.
 * Before each add, the destination playlist is read once and every existing track ID is skipped.
-* Two videos that resolve to the same track are added only once.
+* Two videos that resolve to the same track are added only once (the second is reported as a skip).
 * Before a batch add, a `pending` record with all tracks of that batch is written. If the HTTP result is
   ambiguous (timeout, 5xx, GraphQL error), the run stops, keeps `pending`, and the next run reconciles
   it: tracks visible in the playlist are recorded, and anything else needs one manual check.
@@ -147,8 +147,9 @@ Two kinds of messages per run:
 
 1. **Summary** — result, counts, and per-song details for `SKIP` / `FAIL` only.
 2. **Per-song log** — one line per song that needs attention (`ADD` / `WOULD ADD` / `SKIP` / `FAIL`, with
-   YouTube link, match method, Spotify link and reason). Songs that are **already synced or already in the
-   playlist are saved to the database but not listed** — only their count appears in the summary.
+   YouTube link, match method, Spotify link and reason). Songs that are **already synced, already in the
+   playlist or duplicated are saved to the database only**: not counted as skips, not shown anywhere, no
+   Spotify search on later runs. `Skipped: N` therefore only counts songs that had a real reason.
 3. **At most 6 Telegram messages per run** (`TELEGRAM_MAX_MESSAGES`): whole messages are packed together up
    to the 4000-character limit, so a 200-song playlist produces ~3 messages instead of a dozen. Anything
    beyond the cap is summarised with an "omitted" note and left in the Actions log. If Telegram is not

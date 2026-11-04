@@ -789,17 +789,13 @@ def issue_text(value, limit=600):
     text = ''.join(ch for ch in text if ch.isprintable())
     return text if len(text) <= limit else text[:limit - 1] + '…'
 
-def report_issue(issues, status, video, reason, track_id=None, method=None, quiet=False, counted=False):
-    """Record one outcome.
-
-    quiet=True keeps it out of the Telegram per-song log (already synced songs).
-    counted=True means the outcome is already reflected in the summary counters.
-    """
+def report_issue(issues, status, video, reason, track_id=None, method=None, quiet=False):
+    """Record one outcome. quiet=True keeps it out of the Telegram reports."""
     if issues is not None:
         issues.append({'status': status, 'title': issue_text(video.get('title')) or '(title unavailable)',
                        'channel': issue_text(video.get('channel')), 'video_id': video.get('id'),
                        'reason': issue_text(reason), 'track_id': track_id, 'method': method,
-                       'quiet': quiet, 'counted': counted})
+                       'quiet': quiet})
 
 def utf16_chunks(text, limit=4000):
     """Split plain text on line boundaries so Telegram limits are never exceeded."""
@@ -826,41 +822,23 @@ def utf16_chunks(text, limit=4000):
     return [chunk for chunk in chunks if chunk.strip()]
 
 
-def skip_breakdown(events):
-    """Count the quiet (already synced / already present) outcomes per reason."""
-    counts = {}
-    for event in events:
-        if event.get('quiet'):
-            counts[event['reason']] = counts.get(event['reason'], 0) + 1
-    return counts
-
-
 def summary_message(summary, events):
-    """One compact message: counts, why songs were skipped, and the silent ones."""
-    def counted(reasons):
-        totals = {}
-        for event in events:
-            if event['status'] in ('ADD', 'WOULD ADD') or not event.get('counted'):
-                continue
-            if reasons is not None and event['reason'] not in reasons:
-                continue
-            totals[event['reason']] = totals.get(event['reason'], 0) + 1
-        return totals
+    """One compact message: the counts plus why songs were skipped, no song list.
 
+    Songs that were already synced or already in the playlist are not counted
+    and not listed here - they only live in the database.
+    """
+    reasons = {}
+    for event in events:
+        if event['status'] == 'ADD' or event['status'] == 'WOULD ADD' or event.get('quiet'):
+            continue
+        reasons[event['reason']] = reasons.get(event['reason'], 0) + 1
     lines = [summary]
-    quiet = counted({reason for reason, event in ((e['reason'], e) for e in events) if event.get('quiet')})
-    reported = counted(None)
-    for reason in quiet:
-        reported.pop(reason, None)
-    if quiet:
-        lines += ['', f'Already synced, in the playlist, or duplicated ({sum(quiet.values())}) — '
-                      'saved to the database, not listed:']
-        lines += [f'  • {number} × {reason}' for reason, number in sorted(quiet.items())]
-    if reported:
-        lines += ['', 'Songs that need a look:']
+    if reasons:
+        lines += ['', 'Why songs were skipped:']
         lines += [f'  • {number} × {reason}'
-                  for reason, number in sorted(reported.items(), key=lambda item: -item[1])]
-    lines += ['', 'Per-song details follow.']
+                  for reason, number in sorted(reasons.items(), key=lambda item: -item[1])]
+    lines += ['', 'Per-song details follow.', 'Full log: the Actions run log.']
     return '\n'.join(lines)
 
 
@@ -876,8 +854,7 @@ def activity_messages(header, events, limit=4000):
     messages = [header]
     for event in events:
         if event.get('quiet'):
-            # Already synced / already in the playlist: saved in the database,
-            # counted in the header, not worth a message per song.
+            # Already synced / already in the playlist: database only.
             continue
         bits = []
         video_id = event.get('video_id')
@@ -915,8 +892,7 @@ def telegram_messages(summary, issues):
     messages = [summary]
     for issue in issues:
         if issue['status'] in ('ADD', 'WOULD ADD') or issue.get('quiet'):
-            # Successful additions are only listed in the full-log messages;
-            # already-present songs are only counted (see skip_breakdown).
+            # Successful additions only appear in the per-song log.
             continue
         lines = [f"{issue['status']}: {issue['title']}"]
         if issue['channel']:
@@ -1013,21 +989,19 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
     for video in videos:
         vid = video['id']
         if vid in db['videos']:
-            counts['skip'] += 1
-            report_issue(issues, 'SKIP', video, 'Already recorded in the sync database', db['videos'][vid],
-                         quiet=True, counted=True)
-            LOG.info('SKIP %s: already recorded', vid)
+            # Already synced: it lives in the database, so nothing to report and
+            # nothing to count - it is not a skip with a reason.
+            LOG.info('SYNCED %s: already in the database (not counted, not reported)', vid)
             continue
         if vid in seen:
-            # The same video appears twice in the YouTube playlist.
-            counts['skip'] += 1
-            report_issue(issues, 'SKIP', video, 'Duplicate video in the YouTube playlist', quiet=True, counted=True)
-            LOG.info('SKIP %s: duplicate video in the YouTube playlist', vid)
+            # The same video appears twice in the YouTube playlist: also not an
+            # error, just saved once.
+            LOG.info('SYNCED %s: duplicate video in the YouTube playlist (not counted, not reported)', vid)
             continue
         seen.add(vid)
         if video['title'].strip().casefold() in ('', 'private video', 'deleted video'):
             counts['skip'] += 1
-            report_issue(issues, 'SKIP', video, 'Unavailable or missing video title', counted=True)
+            report_issue(issues, 'SKIP', video, 'Unavailable or missing video title')
             LOG.info('SKIP %s: unavailable or missing video title', vid)
             continue
         tid = None
@@ -1055,7 +1029,7 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                     method = 'DETAIL'
                 if not track:
                     counts['skip'] += 1
-                    report_issue(issues, 'SKIP', video, 'No confident artist/title/version match', counted=True)
+                    report_issue(issues, 'SKIP', video, 'No confident artist/title/version match')
                     LOG.info('SKIP %s: no confident artist/title/version match (video: %s)', vid, log_text(video['title']))
                     continue
                 tid = track['id']
@@ -1065,14 +1039,14 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 # Two videos resolved to the same track: add it only once.
                 counts['skip'] += 1
                 reason = 'Same track already planned in this dry run' if dry_run else 'Same track already planned in this run'
-                report_issue(issues, 'SKIP', video, reason, tid, method, counted=True)
+                report_issue(issues, 'SKIP', video, reason, tid, method)
                 LOG.info('SKIP %s: %s', vid, reason)
                 continue
             if tid in existing:
-                counts['skip'] += 1
-                report_issue(issues, 'SKIP', video, 'Track already in Spotify playlist', tid, method,
-                             quiet=True, counted=True)
-                LOG.info('SKIP %s: track already in Spotify playlist', vid)
+                # Already in the Spotify playlist: recorded in the database so it
+                # is never searched again, but not a skip and not reported.
+                LOG.info('SYNCED %s -> %s: already in the Spotify playlist (not counted, not reported)',
+                         vid, tid)
                 if not dry_run:
                     db['videos'][vid] = tid
                     save_state(STATE_PATH, state)
@@ -1206,19 +1180,9 @@ def main():
             summary += f'\nRun stopped: {issue_text(fatal_reason)}'
         LOG.info(summary)
         events = [dict(event, n=number) for number, event in enumerate(issues, start=1)]
-        quiet = skip_breakdown(events)
-        quiet_total = sum(quiet.values())
-        reported = len(events) - quiet_total
-        LOG.info('Full report: %d event(s), %d already-present (not sent to Telegram)',
-                 len(events), quiet_total)
-        for reason, number in sorted(quiet.items()):
-            LOG.info('  %d × %s', number, reason)
+        LOG.info('Full report: %d event(s)', len(events))
         mode = 'DRY RUN' if args.dry_run else 'SYNC'
-        header = f'YouTube → Spotify log ({mode}): {reported} song(s) to report'
-        if quiet_total:
-            details = '; '.join(f'{number} × {reason}' for reason, number in sorted(quiet.items()))
-            header += f'\nAlready present, not listed ({quiet_total}): {details}'
-        header += '\nFull details: the Actions run log.'
+        header = f'YouTube → Spotify log ({mode}): {len(events)} song(s) to report'
         reports = [summary_message(summary, events)]
         if events:
             reports += activity_messages(header, events)

@@ -51,7 +51,8 @@ class OverrideTests(unittest.TestCase):
         client = FakeClient()
         with self.assertLogs('sync', level='INFO') as logs:
             counts = self.run_sync(client, dry=True, videos=[VIDEO, VIDEO])
-        self.assertEqual(counts, {'add': 1, 'skip': 1, 'fail': 0})
+        # The second copy of the same video is silent (database only).
+        self.assertEqual(counts, {'add': 1, 'skip': 0, 'fail': 0})
         self.assertEqual(client.searched, [])
         self.assertEqual(client.added, [])
         self.assertFalse(self.state_path.exists())
@@ -60,14 +61,14 @@ class OverrideTests(unittest.TestCase):
     def test_manual_choice_adds_only_once_and_records_state(self):
         client = FakeClient()
         counts = self.run_sync(client, videos=[VIDEO, VIDEO])
-        self.assertEqual(counts, {'add': 1, 'skip': 1, 'fail': 0})
+        self.assertEqual(counts, {'add': 1, 'skip': 0, 'fail': 0})
         self.assertEqual(client.added, [TRACK_ID])
         self.assertEqual(app.load_state(self.state_path)['playlists']['playlist']['videos'], {VIDEO['id']: TRACK_ID})
         self.assertEqual(app.load_state(self.state_path)['playlists']['playlist']['pending'], None)
 
     def test_manual_choice_does_not_duplicate_existing_track(self):
         client = FakeClient([TRACK_ID])
-        self.assertEqual(self.run_sync(client), {'add': 0, 'skip': 1, 'fail': 0})
+        self.assertEqual(self.run_sync(client), {'add': 0, 'skip': 0, 'fail': 0})
         self.assertEqual(client.added, [])
         self.assertEqual(app.load_state(self.state_path)['playlists']['playlist']['videos'], {VIDEO['id']: TRACK_ID})
 
