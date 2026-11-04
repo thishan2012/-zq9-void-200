@@ -1,7 +1,7 @@
-# 🔎 13 — Extra search steps (27 වෙන වෙනම ක්‍රම)
+# 🔎 13 — Extra search steps (28 වෙන වෙනම ක්‍රම)
 
 මේ ගොනුව කියවන්නේ **"ඇයි මේ සින්දුව add වුණේ නැත්තේ?"** කියන ප්‍රශ්නයට උත්තර දෙන්න.
-පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 27 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
+පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 28 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
 හැම එකක්ම වෙන වෙනම කුඩා experiment එකක් — කැඩුණොත් අනිත් ඒවාට බලපෑමක් නෑ, අයින් කරන්නත් පුළුවන්.
 
 > 👉 ලොජික් එක තියෙන්නේ `syncer/search_steps.py` එකේ. ලැයිස්තුව බලන්න: `python -m syncer.app --steps`
@@ -26,7 +26,7 @@
 
 ---
 
-## 2. Steps 27
+## 2. Steps 28
 
 | # | Code | මොකද කරන්නේ | උදාහරණය |
 |---|---|---|---|
@@ -52,11 +52,12 @@
 | 20 | `CLEANARTIST` | title clean කරලා ඉතුරු වෙන artist එකෙන් search | `DESTELLO - HDN \| VIRAL PHONK` |
 | 21 | `TITLEONLY` | title විතරක් — duration එකයි "track නම title එකේ තියෙනවද" කියලා දෙකෙන්ම ඔප්පු වුණොත් විතරයි | `MONTAGEM RUNE - WUYS x KIT` |
 | 22 | `SONGTAG` | title එකේ ඇත්ත song නම නැති uploads: description/hashtags වල `Song: …`, `Artist: …`, ♪ line, `#MontagemMiau` වලින් නම ගන්නවා | `MONTAGEM MIAU 🔥` |
-| 23 | `BROKEN` | dash එකේ දෙපැත්ත **අනිත් පැත්තට** ලියලා තියෙනවා (`DESTELLO - HDN` = artist `HDN`, song `DESTELLO`) | `DESTELLO - HDN` + channel `HDN🎹` |
-| 24 | `ALBUM` | version/naming එක **album එකේ** තියෙනවා (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album එකේ | 
-| 25 | `PART` | Spotify එකේ `Pt. 1` / `Pt. 2` විදිහට කැඩිච්ච titles එකම සින්දුව විදිහට | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
-| 26 | `POPULAR` | එකම title එකේ matches කීපයක් → **වැඩිම play ගණන** ඇති එක (play ගණනක් නැත්නම්/සමාන නම් → තෝරන්නේ නෑ) | duplicate uploads |
-| 27 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
+| 23 | `DESCTEXT` | description එකේ label නැති line එකක් (නම විතරක්) song නම විදිහට — 0.92 floor | `MONTAGEM MIAU` + `Prod. by DJ NEO` |
+| 24 | `BROKEN` | dash එකේ දෙපැත්ත **අනිත් පැත්තට** ලියලා තියෙනවා (`DESTELLO - HDN` = artist `HDN`, song `DESTELLO`) | `DESTELLO - HDN` + channel `HDN🎹` |
+| 25 | `ALBUM` | version/naming එක **album එකේ** තියෙනවා (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album එකේ | 
+| 26 | `PART` | Spotify එකේ `Pt. 1` / `Pt. 2` විදිහට කැඩිච්ච titles එකම සින්දුව විදිහට | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
+| 27 | `POPULAR` | එකම title එකේ matches කීපයක් → **වැඩිම play ගණන** ඇති එක (play ගණනක් නැත්නම්/සමාන නම් → තෝරන්නේ නෑ) | duplicate uploads |
+| 28 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
 
 **හැම step එකකුත් අන්තිමට artist conflict එක බලනවා** (`artist_ok()`): video එකේ title එකේ artist කෙනෙක් තියෙනවා නම්, Spotify track එකේ ඒ නම නැත්නම් → match එක අවිශ්වාසී, ඒ නිසා ගන්නේ නෑ.
 ඒකයි `DESTELLO - HDN` වගේ එකක් වෙන artist කෙනෙක්ගේ `HDN` එකට match වෙන්නේ නැත්තේ (Spotify එකේ DESTELLO නෑ නම් → skip).
@@ -171,15 +172,37 @@ Workflow එකේ cron දෙකක් තියෙනවා:
 **private** නම්, `--forget-skipped` කරත් හැම run එකකම "Not found" එක එන්න පුළුවන්. ඒ නිසා:
 track එක Spotify එකට ආයේ ආව දාට විතරක් `--forget-video` කරන්න.
 
+## 2b3. Description parser — තව labels (`Track:`, `Prod. by`, `ISRC:`)
+
+`SONGTAG` (22) දැන් මේ ලේබල්ස් ඔක්කොම කියවනවා:
+
+| Line | ගන්නේ |
+|---|---|
+| `Song: …` / `Song name: …` / `Track: …` / `Title: …` | song නම |
+| `Artist: …` / `Performed by …` | artist |
+| **`Prod. by DJ NEO` / `Prod: …` / `Produced by …` / `Producer: …` / `Music by …`** | artist (producer) — **අලුත්** |
+| `♪ MONTAGEM MIAU` | song නම |
+| `"MONTAGEM MIAU"` (quoted) | song නම |
+| `#MontagemMiau` / uploader tags | song නම |
+
+**`ISRC: …`** කියවනවා, ඒත් **evidence විදිහට විතරයි** — track එකක් ඒකෙන් තනියෙම තෝරන්නේ නෑ.
+
+**Producer credit එකේ රීතිය:** Spotify එකේ track එක producer ට credit වෙලා තිබ්බොත් ඒක **conflict එකක් නෙවෙයි** — ඒත් producer නම විතරක් තියෙන නිසා වෙන artist කෙනෙක්ට ඒක pass කරන්නේ නෑ.
+
+### `DESCTEXT` (23) — label නැති line එක
+
+`MONTAGEM MIAU` වගේ line එකක් description එකේ තනියෙම තිබ්බොත් (label එකක් නැතුව), ඒක song නම විදිහට try කරනවා.
+ඒත් `Subscribe …`, `Listen …`, links, hashtags, genre වචන විතරක් තියෙන lines **මග හරිනවා**; floor එක **0.92** (SONGTAG එකේ 0.90 ට වඩා දැඩි).
+
 ## 2b1a. Rate limit — search ගණන පාලනය
 
-Steps 27ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:
+Steps 28ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:
 
 1. **Extra steps යන්නේ skip වුණ සින්දුවලට විතරයි.** `STRICT`/`LOOSE`/`DETAIL` වලින් හම්බ වුණොත්, නැත්නම් සින්දුව දැනටමත් playlist එකේ තියෙනවා නම් → අමතර query **0**.
 2. **එකම query එක දෙපාරක් යන්නේ නෑ.** Run එක ඇතුළේ cache එකක් තියෙනවා (`SEARCH_CACHE_MAX` = 5000). `Nulteex shaka` යැව්වට පස්සේ `shaka` එකට ආයේ request එකක් යන්නේ නෑ. Run එක ඉවර වෙද්දී log එකේ: `Spotify searches: 41 real query(s), 17 reused from the run cache`.
 3. **Search දෙකක් අතරේ පරතරයක්.** `SEARCH_PAUSE_SECONDS` (default `0.5s`) — `REQUEST_DELAY_SECONDS` (default 2s) උඩින්.
 4. **429 ආවොත්** `Retry-After` එක බලලා ආයේ උත්සාහ කරනවා (read requests 3 වතෙක්), ඒ වගේම ඒ run එකේ ඉතුරු searches අතරේ පරතරය **දෙගුණ** වෙනවා — උපරිම `30s`.
-5. **Session එක මැරිලා නම් (403 / blocked cookie) ඉතුරු steps දුවන්නේ නෑ** — එකම error එකට steps 27ක් වියදම් කරන එක නවත්තලා, run එක එහෙමම fail වෙනවා.
+5. **Session එක මැරිලා නම් (403 / blocked cookie) ඉතුරු steps දුවන්නේ නෑ** — එකම error එකට steps 28ක් වියදම් කරන එක නවත්තලා, run එක එහෙමම fail වෙනවා.
 
 ## 2b1b. Skip වෙන සින්දුවක් අතින් add කරන්න (manual pick)
 
@@ -360,7 +383,7 @@ class MyStep(Step):
 
 ## 6. පොදු ප්‍රශ්න
 
-**Q. Steps 27ම හැම සින්දුවකටම දුවනවද?**
+**Q. Steps 28ම හැම සින්දුවකටම දුවනවද?**
 නෑ. `applies()` එකෙන් අදාළ නැති ඒවා මුලින්ම අයින් වෙනවා (උදා: `REVERSED` දුවන්නේ artist credit එකේ `x`/`,` තියෙන සින්දුවලට විතරයි).
 Match නොවුණු සින්දුවකට steps 8–11ක් විතරයි දුවන්නේ, එකකට search 1–3ක්.
 

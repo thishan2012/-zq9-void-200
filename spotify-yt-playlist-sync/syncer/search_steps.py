@@ -84,6 +84,19 @@ def description_artists(step):
     return {app.normalized(name) for name in app.artist_candidates(found[0])} - {''}
 
 
+def producer_artists(step):
+    """Artist names the description credits as the producer ("Prod. by DJ NEO").
+
+    Computed once per step: it is read for every candidate.
+    """
+    cached = getattr(step, '_producers', None)
+    if cached is None:
+        names = app.description_producers(step.video.get('description') or '')
+        cached = {app.normalized(name) for name in names} - {''}
+        step._producers = cached
+    return cached
+
+
 def known_artists(step):
     """Artists the *title* credits. A name that only the channel gave us does
     not count: it would turn "uploaded by A, made by B" into a false conflict."""
@@ -110,7 +123,15 @@ def conflict(step, track):
                  if not app.is_generic_name(name)} - {''}
     if not known:
         return False
-    return not any(shared_credit(a, b) for a in known for b in track_artists(track))
+    if any(shared_credit(a, b) for a in known for b in track_artists(track)):
+        return False
+    # A producer named in the description is a real credit too, so a track
+    # credited to them is not a contradiction (phonk uploads often name only
+    # the producer). It never *adds* a conflict on its own.
+    producers = producer_artists(step)
+    if producers and any(shared_credit(a, b) for a in producers for b in track_artists(track)):
+        return False
+    return True
 
 
 def shared_credit(a, b):
@@ -849,12 +870,58 @@ class SongTagStep(Step):
     def run(self, client, token):
         channel = [name for name in app.channel_names(self.parsed, self.video)
                    if not app.is_generic_name(name)][:2]
+        # "Prod. by DJ NEO" is often the only name the upload gives.
+        producers = app.description_producers(self.video.get('description') or '')
         keep = []
         for song, artists in self.named_songs():
-            for artist in (artists + channel)[:2] + ['']:
+            for artist in (artists + producers + channel)[:3] + ['']:
                 keep += self.named(self.search(client, token, artist, song), floor=.90)
             if keep:
                 break            # the first name that works is enough
+        keep = [track for track in keep if artist_ok(self, track)]
+        return one_of(keep)
+
+
+class LooseDescriptionStep(Step):
+    code = 'DESCTEXT'
+    title = 'A line of the description read as the song name, when the title is marketing'
+
+    # Short lines that are not the song: links, credits, calls to action.
+    SKIP_WORDS = {'subscribe', 'stream', 'download', 'follow', 'link', 'links', 'credit',
+                  'credits', 'contact', 'business', 'instagram', 'tiktok', 'telegram', 'facebook',
+                  'spotify', 'youtube', 'soundcloud', 'apple', 'out', 'now', 'available', 'all',
+                  'platforms', 'lyrics', 'tags', 'copyright', 'thanks', 'watch', 'listen'}
+
+    def lines(self):
+        found = []
+        for line in app.description_lines(self.video.get('description') or '', 8):
+            if len(line) > 80 or '://' in line or line.startswith(('#', '@', '•', '-', '=')):
+                continue
+            words = app.normalized(line).split()
+            if not 2 <= len(words) <= 7:
+                continue
+            if set(words) & self.SKIP_WORDS:
+                continue
+            if set(words) <= (app.TAG_WORDS | app.MARKETING_WORDS):
+                continue
+            if len([word for word in words if word not in app.TAG_WORDS]) < 2:
+                continue
+            found.append(line.strip(' -–—♪♫'))
+        return list(dict.fromkeys(found))[:3]
+
+    def applies(self):
+        return bool(self.lines())
+
+    def run(self, client, token):
+        channel = [name for name in app.channel_names(self.parsed, self.video)
+                   if not app.is_generic_name(name)][:2]
+        producers = app.description_producers(self.video.get('description') or '')
+        keep = []
+        for line in self.lines():
+            for artist in (producers + channel)[:2] + ['']:
+                keep += self.named(self.search(client, token, artist, line), floor=.92)
+            if keep:
+                break
         keep = [track for track in keep if artist_ok(self, track)]
         return one_of(keep)
 
@@ -993,11 +1060,12 @@ STEPS = (
     SuffixArtistStep,        # 20
     TimedTitleStep,          # 21
     SongTagStep,             # 22
-    BrokenCreditStep,        # 23
-    AlbumAwareStep,          # 24
-    PartSuffixStep,          # 25
-    PopularRankStep,         # 26
-    TopResultStep,           # 27  (always last: the least certain step)
+    LooseDescriptionStep,    # 23  (a bare description line, stricter floor)
+    BrokenCreditStep,        # 24
+    AlbumAwareStep,          # 25
+    PartSuffixStep,          # 26
+    PopularRankStep,         # 27
+    TopResultStep,           # 28  (always last: the least certain step)
 )
 
 
