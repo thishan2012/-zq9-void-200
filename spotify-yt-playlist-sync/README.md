@@ -191,6 +191,9 @@ came back to Spotify, or a video that turned public, is therefore found again wi
 that still misses is counted but not reported, so the retry is free for the reader. `--retry-expired` lists
 what the next weekly run would retry.
 
+The database commit is made by **`thishcrvwqe-bot`** (set `vars.COMMIT_NAME` to change the name;
+`vars.COMMIT_EMAIL` must stay the built-in bot address unless a personal token is used for the push).
+
 The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
 
 ---

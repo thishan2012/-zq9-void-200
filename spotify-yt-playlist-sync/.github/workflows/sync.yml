@@ -18,6 +18,9 @@ name: YouTube to Spotify sync
 #   vars.SEARCH_PAUSE_SECONDS      optional, default 0.5 s (extra gap between two searches)
 #   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
 #   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
+#   vars.COMMIT_NAME / COMMIT_EMAIL  optional: who the database commit is
+#                                   made by (default thishcrvwqe-bot; the email
+#                                   must stay the bot's for the token to be allowed)
 #   manual run only: the reset_db input (none / history / playlist / all)
 #   drops part of the sync database before syncing - the emergency switch,
 #   never touches the Spotify playlist, keeps a .bak copy of the file
@@ -205,13 +208,24 @@ jobs:
       # free; only Spotify writes are skipped in a dry run.
       - name: Save sync database
         if: ${{ always() && steps.sync.outcome != 'skipped' }}
+        env:
+          # Committer name for the database commit. Change the repository
+          # variable COMMIT_NAME to use another one; the email must stay the
+          # bot's unless a personal token is used for the push.
+          COMMIT_NAME: ${{ vars.COMMIT_NAME || 'thishcrvwqe-bot' }}
+          COMMIT_EMAIL: ${{ vars.COMMIT_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}
         run: |
           if git diff --quiet -- data/sync-state.json; then
             echo 'No database changes.'
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # Commits are made by the workflow's own bot identity, but the name is
+          # ours: "github-actions[bot]" in the history says nothing about what
+          # the run did. The email stays the bot's, because GitHub only lets the
+          # built-in token commit as that account.
+          git config user.name "$COMMIT_NAME"
+          git config user.email "$COMMIT_EMAIL"
+          echo "::notice::Database commit by $COMMIT_NAME <$COMMIT_EMAIL>"
           git add data/sync-state.json
           if [ -f data/sync-state.json.bak ]; then
             git add -f data/sync-state.json.bak

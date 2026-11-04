@@ -5,6 +5,7 @@
 | # | ඔයා ඉල්ලපු දේ | කළේ කොහොමද |
 |---|---|---|
 | 1 | YT pagination (50/page, 200 = 4 pages) | `nextPageToken` loop එක දැනටමත් තිබුණා — දැන් log එකේ page ගාණ print වෙනවා ("page 1…4, 200 items"). |
+| 1c | Database commit එකේ නම `github-actions[bot]` වෙනුවට වෙනස් කරන්න ඕන | Repository → Settings → Variables → **`COMMIT_NAME`** = `thishcrvwqe-bot` (default එකම ඒක). Email එක බොරු කරන්න බෑ — ඒක bot ගේම වෙන්න ඕන, නැත්නම් push reject වෙනවා |
 | 1b | **හදිසි අවස්ථාවක** database එක reset කරන්න ඕන | Actions → **Run workflow** → *Emergency: reset the sync database* (`history` / `playlist` / `all`). Local එකේ නම් `python -m syncer.app --reset-db all --yes`. **Spotify playlist එකට අත ගහන්නේ නෑ**, `.bak` copy එකක් ඉතුරු වෙනවා |
 | 2 | Skip වුණ සින්දුවක් ආයේ try කරන්න ඕන | **ඉරිදා 03:00 UTC run එකේදී තනියෙන්ම** වෙනවා (දවස් 7ට වඩා පරණ skips). දැන්ම බලන්න `python -m syncer.app --retry-expired`, එකක් ආයේ try කරන්න `--forget-video <id>` |
 | 2b | Spotify rate limit (search 200 = block) | `REQUEST_DELAY_SECONDS` (default **2s**, හැම request එකට කලින්) + `SEARCH_PAUSE_SECONDS` (default **0.5s**, search දෙකක් අතරේ; 429 ආවොත් 30s වෙනකම් දෙගුණ වෙනවා). එකම query එක දෙපාරක් යන්නේ නෑ (run cache). අලුතෙන්: 429/5xx ආවොත් **read** requests `Retry-After` එක බලලා 3 වතාවක් තෙක් ආයේ උත්සාහ කරනවා. Write එකක් කවදාවත් retry කරන්නේ නෑ. |
