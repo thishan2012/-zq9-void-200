@@ -1,4 +1,39 @@
 {
   "version": 1,
-  "playlists": {}
+  "playlists": {
+    "1G84VxuubZb4cofjVmk4OD": {
+      "videos": {},
+      "pending": null,
+      "skipped": {
+        "aLZNbOUOyI4": {
+          "title": "DESTELLO - HDN | VIRAL PHONK",
+          "channel": "HDN🎹"
+        },
+        "-kY02KZXsXA": {
+          "title": "LUZ",
+          "channel": "HDN - Topic"
+        },
+        "angdVO_El6s": {
+          "title": "MONTAGEM RUNE - WUYS x KIT",
+          "channel": "RioX"
+        },
+        "pRs2d6p_EDo": {
+          "title": "QUERO AMOR - SXYGX x FYU",
+          "channel": "RioX"
+        },
+        "WDbpp011zhk": {
+          "title": "FUNK TONTO (feat. Mc Ombrinho) [Slowed]",
+          "channel": "Raiden - Topic"
+        },
+        "fmrsBXzj22Q": {
+          "title": "LOUCARA FUNK!",
+          "channel": "Espato - Topic"
+        },
+        "dOcTxjnGZps": {
+          "title": "Private video"
+        }
+      }
+    }
+  },
+  "matcher": 2
 }
