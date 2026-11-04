@@ -50,6 +50,7 @@ Go to **Settings → Secrets and variables → Actions** in *your private fork/c
 | `YOUTUBE_PLAYLIST` | placeholder URL in `sync.yml` | source playlist URL or ID |
 | `SPOTIFY_PLAYLIST` | placeholder URL in `sync.yml` | destination playlist URL or ID |
 | `REQUEST_DELAY_SECONDS` | `2` | delay before **every** request (0–60). Keep 1–2 for 200-song playlists. |
+| `SEARCH_PAUSE_SECONDS` | `0.5` | extra gap between two **searches** (0–60), and it doubles up to 30 s after a 429. |
 | `SPOTIFY_BATCH_SIZE` | `100` | tracks per add request (1–100). Lower it if Spotify starts rejecting. |
 | `SYNC_ENABLED` | *(unset)* | `true` lets **scheduled** runs write. Unset = scheduled runs stay dry runs. |
 
@@ -132,10 +133,10 @@ python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
 export YOUTUBE_PLAYLIST='https://www.youtube.com/playlist?list=PL…'
 export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
 export YOUTUBE_API_KEY='…'
-# optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SPOTIFY_BATCH_SIZE
+# optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SEARCH_PAUSE_SECONDS, SPOTIFY_BATCH_SIZE
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
 .venv/bin/python -m syncer.app --explain     # why were the skipped songs skipped? (read-only)
-.venv/bin/python -m unittest discover -s tests -v   # 173 tests
+.venv/bin/python -m unittest discover -s tests -v   # 186 tests
 ```
 
 `--explain` searches every remembered skip once more and prints, per song, what `STRICT`/`LOOSE` and each
@@ -186,7 +187,7 @@ syncer/app.py                all logic (YouTube, Spotify transport, matching, ba
 data/sync-state.json         database: per playlist {videos, pending}
 data/track-overrides.json    manual YouTube → Spotify mappings
 instructions/00…11-*.md      A–Z guides (start at instructions/README.md)
-tests/                       65 unit tests (matching, transport, batching, rate limits, reporting)
+tests/                       186 unit tests (matching, transport, batching, rate limits, reporting)
 cookies/README.md            why the cookie file is not in Git
 ```
 
@@ -222,6 +223,7 @@ cookies/README.md            why the cookie file is not in Git
 | `TELEGRAM_BOT_TOKEN` | optional | full log |
 | `TELEGRAM_CHAT_ID` | optional | full log |
 | `REQUEST_DELAY_SECONDS` | optional variable | default 2 s |
+| `SEARCH_PAUSE_SECONDS` | optional variable | default 0.5 s |
 | `SPOTIFY_BATCH_SIZE` | optional variable | default 100 (1–100) |
 
 Secrets win over variables; both are read (`secrets.X || vars.X || placeholder`).

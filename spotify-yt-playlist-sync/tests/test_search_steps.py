@@ -667,6 +667,90 @@ class StepChainTests(unittest.TestCase):
             self.assertTrue(step.title, step.code)
 
 
+class RequestDisciplineTests(unittest.TestCase):
+    """Every search costs rate limit, so none is sent unless it can change the answer."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.patch = patch.object(app, 'STATE_PATH', Path(self.tmp.name) / 'state.json')
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def step_queries(self, catalog):
+        """Queries that came from an extra step (steps use search_query)."""
+        return [query for artist, query in catalog.queries if not artist]
+
+    def test_a_song_strict_can_match_never_reaches_the_extra_steps(self):
+        video_item = video('NULTEEX - SHAKA', channel='Nulteex')
+        catalog = Catalog([track('t1', 'SHAKA', 'Nulteex')])
+        counts = {'add': 0, 'skip': 0, 'fail': 0}
+        issues = []
+        app.sync(catalog, [video_item], 'playlist', 'token', {'version': 1, 'playlists': {}},
+                 True, counts, issues=issues)
+        self.assertEqual(counts['add'], 1)
+        self.assertEqual(issues[-1]['method'], 'STRICT')
+        self.assertEqual(self.step_queries(catalog), [])
+
+    def test_a_song_already_in_the_playlist_is_not_searched_again(self):
+        video_item = video('NULTEEX - SHAKA', channel='Nulteex')
+        catalog = Catalog([track('t1', 'SHAKA', 'Nulteex')])
+        catalog.existing = {'t1'}
+        counts = {'add': 0, 'skip': 0, 'fail': 0}
+        app.sync(catalog, [video_item], 'playlist', 'token', {'version': 1, 'playlists': {}},
+                 True, counts, issues=[])
+        self.assertEqual(counts, {'add': 0, 'skip': 0, 'fail': 0})
+        # Only the first strict search runs; no extra step is spent on a song
+        # that is already in the playlist.
+        self.assertEqual(self.step_queries(catalog), [])
+
+    def test_the_chain_stops_at_the_first_step_that_matches(self):
+        ran = []
+        originals = {}
+        for step in search_steps.STEPS:
+            originals[step.code] = step.run
+            def spy(self, client, token, code=step.code, original=step.run):
+                ran.append(code)
+                return original(self, client, token)
+            step.run = spy
+        self.addCleanup(lambda: [setattr(step, 'run', originals[step.code])
+                                 for step in search_steps.STEPS])
+        video_item = video('DESTELLO - HDN | VIRAL PHONK')
+        parsed = app.metadata(video_item)
+        found, code = search_steps.search_more(
+            Catalog([track('t1', 'HDN', 'DESTELLO')]), video_item, parsed, 'token', {})
+        self.assertEqual(code, 'SUFFIX')
+        self.assertEqual(found['id'], 't1')
+        self.assertEqual(ran[-1], 'SUFFIX')
+        self.assertNotIn('TOPRESULT', ran)
+        # Exactly the steps that apply, in order, up to and including the hit.
+        applied = [step.code for step in search_steps.build_steps(video_item, parsed, {})]
+        self.assertEqual(ran, applied[:applied.index('SUFFIX') + 1])
+
+    def test_a_dead_session_stops_the_chain_instead_of_burning_it(self):
+        class Dead(Catalog):
+            def search(self, artist, title, token):
+                raise app.HttpFatal('Spotify search: blocked', 403)
+
+            def search_query(self, query, token):
+                raise app.HttpFatal('Spotify search: blocked', 403)
+
+        video_item = video('QUERO AMOR - SXYGX x FYU')
+        parsed = app.metadata(video_item)
+        with self.assertRaises(app.FatalError):
+            search_steps.search_more(Dead([]), video_item, parsed, 'token', {})
+
+    def test_a_matched_song_is_searched_a_handful_of_times(self):
+        """A hit must not fan out into dozens of queries for one song."""
+        catalog = Catalog([track('t1', 'HDN', 'DESTELLO')])
+        app.sync(catalog, [video('DESTELLO - HDN | VIRAL PHONK')], 'playlist', 'token',
+                 {'version': 1, 'playlists': {}}, True, {'add': 0, 'skip': 0, 'fail': 0})
+        # The real client also de-duplicates (one request per distinct query),
+        # so these are counted as distinct here.
+        distinct = {app.normalized(f'{artist} {query}') for artist, query in catalog.queries}
+        self.assertLessEqual(len(distinct), 6)
+
+
 class ExtraStepInSyncTests(unittest.TestCase):
     """A video only the new steps can match is added, and the log names the step."""
 

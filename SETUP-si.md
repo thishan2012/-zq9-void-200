@@ -5,7 +5,7 @@
 | # | ඔයා ඉල්ලපු දේ | කළේ කොහොමද |
 |---|---|---|
 | 1 | YT pagination (50/page, 200 = 4 pages) | `nextPageToken` loop එක දැනටමත් තිබුණා — දැන් log එකේ page ගාණ print වෙනවා ("page 1…4, 200 items"). |
-| 2 | Spotify rate limit (search 200 = block) | `REQUEST_DELAY_SECONDS` (default **2s**, හැම request එකට කලින්). අලුතෙන්: 429/5xx ආවොත් **read** requests `Retry-After` එක බලලා 3 වතාවක් තෙක් ආයේ උත්සාහ කරනවා. Write එකක් කවදාවත් retry කරන්නේ නෑ. |
+| 2 | Spotify rate limit (search 200 = block) | `REQUEST_DELAY_SECONDS` (default **2s**, හැම request එකට කලින්) + `SEARCH_PAUSE_SECONDS` (default **0.5s**, search දෙකක් අතරේ; 429 ආවොත් 30s වෙනකම් දෙගුණ වෙනවා). එකම query එක දෙපාරක් යන්නේ නෑ (run cache). අලුතෙන්: 429/5xx ආවොත් **read** requests `Retry-After` එක බලලා 3 වතාවක් තෙක් ආයේ උත්සාහ කරනවා. Write එකක් කවදාවත් retry කරන්නේ නෑ. |
 | 3 | Batch add (100/request) | `add_batch()` අලුතෙන්. 200 සින්දු = **requests 2** (100 + 100). `SPOTIFY_BATCH_SIZE` එකෙන් 1–100 අතර වෙනස් කරන්න පුළුවන්. |
 | 4 | Code එකේ තියෙන playlist links replace | `sync.yml` එකේ `YOUTUBE_PLAYLIST` / `SPOTIFY_PLAYLIST` — `REPLACE_WITH_YOUR_…` placeholders. Repository variables වලින් override කරන්නත් පුළුවන් (secrets නැතුව links විතරක්). |
 | 5 | YT = main source, read-only | YouTube API එකෙන් **කියවනවා විතරයි** (`playlistItems.list`, `videos.list`). YouTube එකට මොනවත් ලියන්නේ නෑ. Spotify එකට add විතරයි. |
@@ -13,7 +13,7 @@
 | 7 | Telegram එකට **full log** | එක run එකකට messages දෙකක්: **Summary** (counts + SKIP/FAIL විස්තර) + **Full log** (හැම සින්දුවක්ම: #number, ADD/WOULD ADD/SKIP/FAIL, channel, YouTube link, match method, Spotify link, reason). 4000 chars ට වැඩි නම් line boundary එකෙන් split — කිසිම entry එකක් නැති වෙන්නේ නෑ. |
 | — | Bonus | Batch එකක outcome අපැහැදිලි නම් (timeout / 5xx / GraphQL error) `pending` state එකේ තියලා run එක නවතිනවා; ඊළඟ run එකේ reconcile වෙනවා. Duplicate එකක් හදන්නේ නෑ. |
 
-**ත්‍යාග 173ක්, හැමෝම pass** (`python -m unittest discover -s tests`). අලුත් `tests/test_remembered.py` (skip/fail මතකය) + `tests/test_search_steps.py` (steps 25). `tests/test_batching.py` එකේ: 200 songs → batches [100, 100], batch size cap, duplicate skip, second run = 0 adds, dry-run, pending reconcile, 429 retry, full-log.
+**ත්‍යාග 186ක්, හැමෝම pass** (`python -m unittest discover -s tests`). අලුත් `tests/test_remembered.py` (skip/fail මතකය) + `tests/test_search_steps.py` (steps 25). `tests/test_batching.py` එකේ: 200 songs → batches [100, 100], batch size cap, duplicate skip, second run = 0 adds, dry-run, pending reconcile, 429 retry, full-log.
 
 ---
 
@@ -39,6 +39,7 @@ Repo → **Settings → Secrets and variables → Actions → Secrets → New re
 | `YOUTUBE_PLAYLIST` | sync.yml එකේ placeholder | Source playlist: `https://www.youtube.com/playlist?list=PL…` |
 | `SPOTIFY_PLAYLIST` | sync.yml එකේ placeholder | Destination: `https://open.spotify.com/playlist/…` |
 | `REQUEST_DELAY_SECONDS` | `2` | හැම request එකට කලින් delay (0–60). 200 songs → 1–2 හොඳයි. |
+| `SEARCH_PAUSE_SECONDS` | `0.5` | search දෙකක් අතරේ අමතර පරතරය (0–60). 429 ආවොත් මේක තනියෙන් 30s වෙනකම් දෙගුණ වෙනවා. |
 | `SPOTIFY_BATCH_SIZE` | `100` | එක request එකකට tracks (1–100). Spotify reject කරනවා නම් 50 කරන්න. |
 
 Links දාන්න ක්‍රම 2ක්:
@@ -59,7 +60,7 @@ Links දාන්න ක්‍රම 2ක්:
 ```bash
 cd spotify-yt-playlist-sync
 python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m unittest discover -s tests -v        # 173 tests
+.venv/bin/python -m unittest discover -s tests -v        # 186 tests
 
 export YOUTUBE_PLAYLIST='https://www.youtube.com/playlist?list=PL…'
 export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
