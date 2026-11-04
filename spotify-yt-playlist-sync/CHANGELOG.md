@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-04 (`--stats`: which step earns its place)
+
+Every run now tallies the method that found each song in the playlist database (`matched`), and
+`--stats` prints it as a table: songs per method, their share, and the steps that never matched. The same
+table is appended to the Actions job summary, so the decision "keep or drop a step" can be made from data
+instead of one run's line.
+
+* The tally is written with the run's own database save (no extra file churn), and a dry run does not
+  change it - a dry run only keeps skip/failure bookkeeping.
+* `step_stats()` / `record_match()` keep it a plain `{code: count}` dict, so hand-editing
+  `data/sync-state.json` stays easy.
+
+Tests: **224**.
+
 ## 2026-11-04 (a richer description parser)
 
 More of what uploads already write in the description is now read, so videos whose title is marketing text
