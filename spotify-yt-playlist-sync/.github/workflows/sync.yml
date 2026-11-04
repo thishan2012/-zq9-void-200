@@ -158,4 +158,14 @@ jobs:
           else
             git commit -m 'Update playlist sync state'
           fi
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          # A changed database must not fail the whole run: the songs were
+          # already added to Spotify (or reported as a dry run) at this point.
+          # A rejected push only means the bookkeeping is one run behind.
+          # The run takes minutes; main may have moved on meanwhile. Rebase the
+          # one-file commit on top instead of failing the push.
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1 || true
+          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            echo 'Database saved.'
+          else
+            echo "::warning::Could not push data/sync-state.json to ${GITHUB_REF_NAME}. The sync itself finished; the skip/failure bookkeeping will be rebuilt by the next run."
+          fi
