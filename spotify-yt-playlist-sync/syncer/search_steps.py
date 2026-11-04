@@ -787,6 +787,78 @@ class TimedTitleStep(Step):
         return one_of(keep)
 
 
+class LinkedTrackStep(Step):
+    code = 'LINKED'
+    title = 'The description links the Spotify track itself (open.spotify.com/track/…)'
+
+    def linked(self):
+        """The track IDs the uploader pasted into the description."""
+        found = app.SPOTIFY_TRACK_LINK.findall(self.video.get('description') or '')
+        return list(dict.fromkeys(found))[:3]
+
+    def applies(self):
+        return bool(self.linked())
+
+    def run(self, client, token):
+        lookup = getattr(client, 'spotify_track', None)
+        if not callable(lookup):
+            return None
+        keep = []
+        for track_id in self.linked():
+            try:
+                track = lookup(track_id, token)
+            except app.SyncError:
+                continue
+            if not isinstance(track, dict) or not track.get('name'):
+                continue
+            # The uploader already said which recording it is; the only thing left
+            # to check is that it is the *same edit* the video is (a slowed video
+            # must not be added as the plain original, and the other way round).
+            if not version_ok(self.video.get('title') or '', track):
+                continue
+            if not artist_ok(self, track):
+                continue
+            keep.append(track)
+        return one_of(keep)
+
+
+class SongTagStep(Step):
+    code = 'SONGTAG'
+    title = 'Song named in the description or the uploader tags ("Song: MONTAGEM MIAU")'
+
+    def named_songs(self):
+        """(song, artists) pairs the description and the tags give us, best first."""
+        found = []
+        stated = app.description_song(self.video.get('description') or '')
+        if stated:
+            found.append((stated[0], [name for name in stated[1] if app.normalized(name)]))
+        for song in app.tag_songs(self.video):
+            found.append((song, []))
+        unique_found, seen = [], set()
+        for song, artists in found:
+            key = app.normalized(song)
+            if len(key) < 3 or key in seen:
+                continue
+            seen.add(key)
+            unique_found.append((song, artists))
+        return unique_found[:4]
+
+    def applies(self):
+        return bool(self.named_songs())
+
+    def run(self, client, token):
+        channel = [name for name in app.channel_names(self.parsed, self.video)
+                   if not app.is_generic_name(name)][:2]
+        keep = []
+        for song, artists in self.named_songs():
+            for artist in (artists + channel)[:2] + ['']:
+                keep += self.named(self.search(client, token, artist, song), floor=.90)
+            if keep:
+                break            # the first name that works is enough
+        keep = [track for track in keep if artist_ok(self, track)]
+        return one_of(keep)
+
+
 class TopResultStep(Step):
     code = 'TOPRESULT'
     title = 'Last resort: the first Spotify result, only when the title and version really match'
@@ -914,16 +986,18 @@ STEPS = (
     WordSetStep,             # 13
     SlowStep,                # 14
     UploaderSearchStep,      # 15
-    FieldOperatorStep,       # 16
-    QueryVariantStep,        # 17
-    DurationVersionStep,     # 18
-    SuffixArtistStep,        # 19
-    TimedTitleStep,          # 20
-    BrokenCreditStep,        # 21
-    AlbumAwareStep,          # 22
-    PartSuffixStep,          # 23
-    PopularRankStep,         # 24
-    TopResultStep,           # 25  (always last: the least certain step)
+    LinkedTrackStep,         # 16  (strongest evidence: the uploader linked the track)
+    FieldOperatorStep,       # 17
+    QueryVariantStep,        # 18
+    DurationVersionStep,     # 19
+    SuffixArtistStep,        # 20
+    TimedTitleStep,          # 21
+    SongTagStep,             # 22
+    BrokenCreditStep,        # 23
+    AlbumAwareStep,          # 24
+    PartSuffixStep,          # 25
+    PopularRankStep,         # 26
+    TopResultStep,           # 27  (always last: the least certain step)
 )
 
 

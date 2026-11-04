@@ -136,7 +136,7 @@ export YOUTUBE_API_KEY='…'
 # optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SEARCH_PAUSE_SECONDS, SPOTIFY_BATCH_SIZE
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
 .venv/bin/python -m syncer.app --explain     # why were the skipped songs skipped? (read-only)
-.venv/bin/python -m unittest discover -s tests -v   # 186 tests
+.venv/bin/python -m unittest discover -s tests -v   # 199 tests
 ```
 
 `--explain` searches every remembered skip once more and prints, per song, what `STRICT`/`LOOSE` and each
@@ -162,10 +162,10 @@ playlist has the same name, so one name is enough — it comes from `playlists.l
    to the 4000-character limit, so a 200-song playlist produces ~3 messages instead of a dozen. Anything
    beyond the cap is summarised with an "omitted" note and left in the Actions log. If Telegram is not
    configured or the send fails, the same report is printed in the Actions log.
-4. **Twenty-five extra search steps** run after the three matching methods (`REVERSED`, `SINGLE`, `CHANNEL`,
+4. **Twenty-seven extra search steps** run after the three matching methods (`REVERSED`, `SINGLE`, `CHANNEL`,
    `TOPIC`, `SUFFIX`, `COUNTRY`, `FEAT`, `DURATION`, `ARTISTS`, `SHORT`, `ARTISTLESS`, `EXACT`, `WORDSET`,
-   `SLOWED`, `UPLOADER`, `FIELD`, `VARIANTS`, `DURVER`, `CLEANARTIST`, `TITLEONLY`, `BROKEN`, `ALBUM`, `PART`,
-   `POPULAR`, and a strictly-checked `TOPRESULT` last resort - see
+   `SLOWED`, `UPLOADER`, `LINKED`, `FIELD`, `VARIANTS`, `DURVER`, `CLEANARTIST`, `TITLEONLY`, `SONGTAG`,
+   `BROKEN`, `ALBUM`, `PART`, `POPULAR`, and a strictly-checked `TOPRESULT` last resort - see
    [instructions/13-search-steps.md](instructions/13-search-steps.md)). Every
    step keeps the recording identical (a Slowed video is only ever added as that slowed edit) and refuses
    to guess when the artists conflict. Each match is labelled with the step that found it.
@@ -187,7 +187,7 @@ syncer/app.py                all logic (YouTube, Spotify transport, matching, ba
 data/sync-state.json         database: per playlist {videos, pending}
 data/track-overrides.json    manual YouTube → Spotify mappings
 instructions/00…11-*.md      A–Z guides (start at instructions/README.md)
-tests/                       186 unit tests (matching, transport, batching, rate limits, reporting)
+tests/                       199 unit tests (matching, transport, batching, rate limits, reporting)
 cookies/README.md            why the cookie file is not in Git
 ```
 
