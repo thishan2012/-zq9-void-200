@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import struct
 import time
+import unicodedata
 from difflib import SequenceMatcher
 from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
 
@@ -23,7 +24,7 @@ BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
-MATCHER_VERSION = 1  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 2  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -490,20 +491,119 @@ def title_similarity(a, b):
         return 0.0
     return SequenceMatcher(None, left, right).ratio()
 
+# ---------------------------------------------------------------- wording --
+# Words that describe an upload, never the song itself ("HDN | VIRAL PHONK").
+MARKETING_WORDS = {
+    'viral', 'tiktok', 'trending', 'phonk', 'funk', 'slowed', 'reverb', 'sped', 'speed',
+    'nightcore', 'bass', 'boosted', 'edit', 'version', 'official', 'music', 'video', 'audio',
+    'lyrics', 'lyric', 'visualizer', 'tropical', 'phonksongs', 'hd', 'hq', '4k',
+}
+# Upload labels only. Version words (slowed, reverb, sped up …) are NOT tags: a
+# "(Slowed + Reverb)" bracket names a different recording and must be kept.
+TAG_WORDS = {'official', 'video', 'audio', 'lyric', 'lyrics', 'visualizer', 'visualiser',
+             'music', 'phonk', 'funk', 'tropical', 'viral', 'tiktok', 'trending',
+             'phonksongs', 'hd', 'hq', '4k'}
+# "A x B", "A × B", "A, B", "A & B", "A + B", "A feat. B", "A ft. B", "A / B".
+# A lone "x" only counts between two words ("WUYS x KIT"), never as a name by
+# itself ("DJ X" is one artist, not "DJ" and "").
+COLLAB_SEPARATOR = re.compile(r'\s+(?:x|×)\s+|\s*(?:,|&|\+|\bfeat(?:uring)?\.?\b|\bft\.?\b|/)\s*', re.I)
+# "… (Slowed)", "… [Super Slowed]" at the end of the song half of a title.
+VERSION_TAG_TAIL = re.compile(r'[\[(]\s*(?:super |ultra |over |extra )?'
+                              r'(?:slowed|sped up|speed up|reverb|nightcore)\s*[\])]\s*$', re.I)
+
+def tag_words(text):
+    """True when a bracketed block is a tag (all its words are upload labels)."""
+    words = normalized(text).split()
+    return bool(words) and all(word in TAG_WORDS for word in words)
+
+def drop_tags(text):
+    """Remove trailing upload tags: "HUEGO [TROPICAL PHONK\\FUNK]" -> "HUEGO"."""
+    while True:
+        match = re.search(r'\s*[\[(]\s*([^\])}]*?)\s*[\])}]\s*$', text)
+        if not match or not tag_words(match.group(1)):
+            return text.strip()
+        text = text[:match.start()].strip()
+
+def strip_marketing(title):
+    """Cut uploader marketing off a title: "HDN | VIRAL PHONK" -> "HDN".
+
+    Only whole words from a fixed list are removed, and only after a separator,
+    so a song whose real name contains "Funk" or "Phonk" keeps it.
+    """
+    text = title.strip()
+    match = re.match(r'^(.+?)\s*[|~]\s*(.+)$', text)
+    if match:
+        tail = normalized(match.group(2)).split()
+        if tail and all(word in MARKETING_WORDS for word in tail):
+            text = match.group(1).strip()
+    return drop_tags(text)
+
+def artist_candidates(credit):
+    """Split an artist credit into individual names.
+
+    "A, B, C", "A & B", "A x B", "A × B", "A + B", "A feat. B" and "A / B" all
+    become separate names, so a collab credit can match Spotify's artist list.
+    """
+    names = []
+    for part in COLLAB_SEPARATOR.split(credit or ''):
+        part = part.strip(' .')
+        if part and normalized(part) and normalized(part) not in {'x', 'ft', 'feat'}:
+            names.append(part)
+    return names
+
+def is_collab_credit(credit):
+    """True when the text looks like more than one artist name."""
+    return len(artist_candidates(credit)) > 1
+
+def is_artist_only_part(text):
+    """True when a dash-separated part is artists alone, e.g. "WUYS x KIT"."""
+    words = normalized(text).split()
+    return bool(words) and is_collab_credit(text) and not all(word in MARKETING_WORDS for word in words)
+
+def split_credit_title(title):
+    """Split "Song || Artists" / "Artists ~ Song" into (song, artists) or None."""
+    for separator in ('||', '~'):
+        if separator not in title:
+            continue
+        left, right = (drop_tags(part.strip(' |~-')) for part in title.split(separator, 1))
+        if not left or not right:
+            continue
+        if is_artist_only_part(right) and not is_artist_only_part(left):
+            return strip_marketing(left), right
+        if is_artist_only_part(left) and not is_artist_only_part(right):
+            return strip_marketing(right), left
+    return None
+
 def canonical_track_title(title):
     """Normalize presentation, not music-version or title differences.
 
-    Never drop a whole bracket: e.g. (Official Video - Slowed) still says
-    Slowed. Exact normalized title equality is deliberately conservative.
+    Version words are kept (a Slowed edit is a different recording), while
+    upload labels are removed:
+      "Song (Official Video)"            -> "song"
+      "Song - Slowed"                    -> "song"          (the version is read
+                                                            by version_signature)
+      "CORTA NO SALÃO (Slowed) [VIDEO]"  -> "corta no salao slowed"
+      "HDN | VIRAL PHONK"                -> "hdn"            (marketing suffix)
     """
     text = title.casefold()
     text = re.sub(r'\b(?:official\s+(?:(?:music|lyric|lyrics)\s+)?(?:video|audio|visualizer|visualiser|lyrics)|music\s+video|(?:lyric|lyrics)\s+video)\b', ' ', text)
     text = re.sub(r'[\[(]\s*(?:lyrics|visualizer|visualiser|audio)\s*[\])]', ' ', text)
     text = ' '.join(re.findall(r'[^\W_]+', text))
+    # Upload tags ("[ TROPICAL PHONK\FUNK ]", "[ PHONKSONGS ]") are not the song.
+    text = re.sub(r'[\[({]\s*([^\])}]*?)\s*[\])}]',
+                  lambda match: ' ' if tag_words(match.group(1)) else match.group(0), text)
     text = re.sub(r'\b(?:speed up|speedup|spedup)\b', 'sped up', text)
-    text = re.sub(r'\b(slowed|sped up) and reverb\b', r'\1 reverb', text)
+    # "Slowed + Reverb" and "Slowed and Reverb" are the same edit: the sign is
+    # not part of the name, the words are.
+    text = re.sub(r'\b(slowed|sped up|reverb) (?:and|\+) (slowed|sped up|reverb)\b',
+                  lambda match: ' '.join(dict.fromkeys([match.group(1), match.group(2)])), text)
     text = re.sub(r'\b(slowed|remix|extended|acoustic|instrumental|live|nightcore|edit) version\b', r'\1', text)
     text = re.sub(r'\bsped up version\b', 'sped up', text)
+    # "Song - Slowed" says it is the slowed version, not that the name ends there.
+    text = re.sub(r'\s+-\s+(?:super |ultra |over |extra )?(?:slowed|sped up|reverb|nightcore)$', ' ', text)
+    # A featured credit belongs to the artist field (Spotify lists it there),
+    # but the featured name itself stays: it is part of the song's identity.
+    text = re.sub(r'[\[(]\s*(?:feat(?:uring)?|ft)\.?\s+', ' ', text)
     return ' '.join(text.split())
 
 def description_artist(title, description):
@@ -523,23 +623,69 @@ def description_artist(title, description):
         if (len(music_credits) >= 2 and title_similarity(title, music_credits[0]) >= .9
                 and all(0 < len(name) <= 100 and normalized(name) for name in music_credits[1:])):
             return ', '.join(music_credits[1:])
-        parts = re.split(r'\s+[-–—]\s+', line, maxsplit=1)
+        parts = re.split(r'\s+[-–—]\s*', line, maxsplit=1)
         if len(parts) == 2 and len(parts[0]) <= 100 and normalized(parts[0]):
             if title_similarity(title, parts[1]) >= .85:
                 return parts[0].strip()
     return None
 
+# Polish marks that look like ASCII letters but are not ("Ł" as "L").
+POLISH_MARKS = str.maketrans({'ł': 'l', 'Ł': 'L', 'ø': 'o', 'Ø': 'O', 'đ': 'd', 'Đ': 'D',
+                              'ß': 'ss', 'æ': 'ae', 'Æ': 'AE', 'œ': 'oe', 'Œ': 'OE'})
+
+def ascii_fold(text):
+    """Fold accents/marks so "CORTA NO SALÃO" and "CORTA NO SALAO" are equal."""
+    text = str(text).translate(POLISH_MARKS)
+    decomposed = unicodedata.normalize('NFKD', text)
+    return ''.join(char for char in decomposed if not unicodedata.combining(char))
+
+def channel_names(parsed, video):
+    """Artist names we can also try as a search term, most specific first."""
+    names = []
+    if parsed:
+        names.extend(artist_candidates(parsed[0]))
+    # An uploader's own name can be the artist credit the title does not carry.
+    names.extend(artist_candidates(video.get('channel', '')))
+    topic = re.fullmatch(r'(.+?)\s*-\s*Topic', video.get('channel', ''), flags=re.I)
+    if topic:
+        names.append(topic.group(1).strip())
+    seen, ordered = set(), []
+    for name in names:
+        key = normalized(name)
+        if key and key not in seen and key not in {'release', 'various artists'}:
+            seen.add(key)
+            ordered.append(name.strip())
+    return ordered
+
+def with_featured(artist, title):
+    """Move a "(feat. X)" credit from the title to the artist string."""
+    found = re.search(r'[\[(]\s*(?:feat(?:uring)?|ft)\.?\s+([^\])}]*)[\])}]', title, re.I)
+    if not found or not normalized(found.group(1)):
+        return artist, title
+    return f'{artist}, {found.group(1).strip()}', title
+
 def metadata(video):
+    """Guess (artist credit, song title) from a YouTube title.
+
+    Uploaders write "Artist - Song" just as often as "Song - Artist", so both
+    orders are recognised: the artist side is the one that is only names
+    ("WUYS x KIT", "DJ ALEX, MC LOCKED"), or the side without a version tag.
+    """
     title = video['title'].strip()
     channel = video.get('channel', '').strip()
     if not normalized(title) or title.casefold() in ('private video', 'deleted video'):
         return None
+    # "Song || Artists" and "Artists ~ Song" both appear in phonk uploads.
+    credited_split = split_credit_title(title)
+    if credited_split:
+        song, credit = credited_split      # metadata() returns (artist, title)
+        return credit, song
     parts = re.split(r'\s+[-–—]\s+', title, maxsplit=1)
     # Prefer an explicit artist credit, including autogenerated music credits,
     # over an uploader or generic distributor Topic channel name.
     artist = description_artist(title, video.get('description', ''))
     if artist:
-        primary = re.split(r'\s*(?:,|&|\bfeat(?:uring)?\.?\b|\bft\.?\b)', artist, maxsplit=1, flags=re.I)[0]
+        primary = artist_candidates(artist)[0] if artist_candidates(artist) else artist
         if len(parts) == 2 and title_similarity(parts[0], primary) >= .8:
             return artist, parts[1]
         return artist, title
@@ -560,9 +706,28 @@ def metadata(video):
         version_words = {'slowed', 'super', 'ultra', 'sped', 'speed', 'up', 'extended',
                          'instrumental', 'remix', 'live', 'acoustic', 'reverb', 'edit', 'version'}
         only_version = bool(suffix) and set(suffix.split()).issubset(version_words)
-        if suffix not in non_song_suffixes and not only_version:
-            return parts[0], parts[1]
-    return None
+        if suffix in non_song_suffixes or only_version:
+            return None
+        if is_artist_only_part(parts[1]) or VERSION_TAG_TAIL.search(parts[0]):
+            # "QUERO AMOR - SXYGX x FYU", "MONTAGEM MANADO (Slowed) - IXZIYOL"
+            return parts[1], strip_marketing(parts[0])
+        return with_featured(parts[0], parts[1])
+    # "FUNK TONTO (feat. Mc Ombrinho) [Slowed]": no dash, but the feat. credit
+    # says who the artists are.
+    found = re.search(r'[\[(]\s*(?:feat(?:uring)?|ft)\.?\s+([^\])}]*)[\])}]', title, re.I)
+    if found and normalized(found.group(1)):
+        return found.group(1).strip(), title
+    # No credit at all (a lyrics upload, or a title that is only the song). The
+    # channel is then the best artist hint there is, and the title is the song.
+    if title_only_channel(channel):
+        return None
+    return channel, title
+
+def title_only_channel(channel):
+    """Generic upload channels are not an artist credit."""
+    words = set(normalized(channel).split())
+    return (not words or words.issubset(TAG_WORDS | {'topic', 'release', 'releases', 'music', 'records',
+                                                     'label', 'vibes', 'phonk', 'funk', 'slowed', 'edit'}))
 
 def version_signature(title):
     """Avoid mixing distinct edits, remixes, and performances of a track."""
@@ -598,6 +763,46 @@ def version_signature(title):
         'original': r'\boriginal\b',
     }
     return {name for name, pattern in patterns.items() if re.search(pattern, words)}
+
+SLOWED_LADDER = {'slowed': 0, 'super-slowed': 1, 'ultra-slowed': 2, 'over-slowed': 2, 'extra-slowed': 2}
+
+def version_tokens(title):
+    """Version words as they appear, plus the slowed family they belong to.
+
+    "super slowed" yields {'super-slowed', 'slowed'}: two uploads agree when the
+    raw markers are equal, or when both sit in the same slowed family.
+    """
+    found = version_signature(title)
+    for name in ('super-slowed', 'ultra-slowed', 'over-slowed', 'extra-slowed'):
+        if name in found:
+            found.add('slowed')
+    return found
+
+def versions_agree(a, b):
+    """True when two titles describe the same edit (see version_tokens)."""
+    return version_tokens(a) == version_tokens(b)
+
+def upgraded_edit(a, b):
+    """True when one side is a harder slowed edit of the same song.
+
+    Spotify often carries only the harder edit ("VOCE NA MIRA - Ultra Slowed")
+    while the video says "Super Slowed". Same song, same family, one step up the
+    slowed ladder - a better match than skipping it. Only the looser methods use
+    this, and a remix/reverb/extended edit is never swapped for another one.
+    """
+    left, right = version_signature(a), version_signature(b)
+    if not left or not right or (left | right) - set(SLOWED_LADDER):
+        return False
+    steps_left = {SLOWED_LADDER[x] for x in left if x in SLOWED_LADDER}
+    steps_right = {SLOWED_LADDER[y] for y in right if y in SLOWED_LADDER}
+    if not steps_left or not steps_right:
+        return False
+    step_a, step_b = max(steps_left), max(steps_right)
+    if step_a == step_b:
+        return True
+    # Uploaders use Super and Ultra interchangeably: both mean "harder than
+    # slowed", so one of those two labels may stand in for the other.
+    return {step_a, step_b} == {1, 2}
 
 def choose_match(artist, title, tracks):
     a, t = normalized(artist), normalized(title)
@@ -1135,12 +1340,22 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                     track = detail_search(client, video, parsed, token, strict_candidates + candidates)
                     method = 'DETAIL'
                 if not track:
+                    # A chain of separate extra search steps (syncer/search_steps.py).
+                    step_state = {}
+                    track, code = search_steps.search_more(client, video, parsed, token, step_state)
+                    method = code or 'DETAIL'
+                    if code:
+                        LOG.info('EXTRA STEP %s matched %s', code, vid)
+                if not track:
                     counts['skip'] += 1
                     report_issue(issues, 'SKIP', video, 'No confident artist/title/version match')
                     remember_skip(db, video)
                     save_skip_changes(state, dry_run)
                     LOG.info('SKIP %s: no confident artist/title/version match (video: %s) (saved; not searched again)',
                              vid, log_text(video['title']))
+                    # Which extra steps ran, so a miss can be inspected later.
+                    LOG.info('SKIP %s: extra steps tried: %s', vid,
+                             ', '.join(step_state.get('tried') or ['none']))
                     continue
                 tid = track['id']
                 artist_names = ', '.join(a.get('name', '') for a in track.get('artists', []))
@@ -1263,11 +1478,17 @@ def main():
                         help='print a markdown summary of the sync database and exit')
     parser.add_argument('--playlist-title', action='store_true',
                         help='print the YouTube playlist name and its link, then exit')
+    parser.add_argument('--steps', action='store_true',
+                        help='list the extra search steps and exit')
     args = parser.parse_args()
     if args.db_summary:
         print(db_summary(STATE_PATH), end='')
         return 0
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+    if args.steps:
+        for number, step in enumerate(search_steps.STEPS, start=1):
+            print(f'{number:2d}. {step.code:<10} {step.title}')
+        return 0
     if args.playlist_title:
         # One read-only API call, for the run page. Never fails the job.
         try:
@@ -1332,6 +1553,15 @@ def main():
         except OSError:
             LOG.error('Could not save the skip/failure bookkeeping')
         name_line = f"Playlist: {playlist['title']}\n{playlist['url']}\n\n" if playlist.get('url') else ''
+        # Which extra search step found what: the quickest way to judge the steps.
+        extra = {}
+        for event in issues:
+            code = event.get('method')
+            if code in search_steps.CODES:
+                extra[code] = extra.get(code, 0) + 1
+        if extra:
+            summary += '\nMatched by extra step: ' + ', '.join(
+                f'{code} ×{number}' for code, number in sorted(extra.items(), key=lambda item: -item[1]))
         summary = (f"{name_line}YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n"
                    f"{'Would add' if args.dry_run else 'Added'}: {counts['add']} | "
                    f"Skipped: {counts['skip']} | Failed: {counts['fail']}")
@@ -1356,6 +1586,10 @@ def main():
             for message in reports:
                 LOG.info('\n%s', message)
     return 0 if result == 'SUCCESS' else 1
+
+# The extra search steps live in their own module. It imports this one back, so
+# the import happens only now, when every helper above already exists.
+from . import search_steps  # noqa: E402  (deliberately last)
 
 if __name__ == '__main__':
     raise SystemExit(main())

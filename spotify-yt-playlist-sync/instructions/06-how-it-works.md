@@ -63,6 +63,13 @@ Fail closed: playlist එක කියවන්න බැරි නම් run �
 - `canonical_track_title()`: `(Official Video)`, `(Lyrics)` අයින් වෙනවා — **ඒත් `(Official Video - Slowed)` එකේ `Slowed` ඉතුරු වෙනවා**
 - Result 2ක් සමාන නම් → **skip** (අහඹුවට තෝරන්නේ නෑ)
 
+### 5a. Extra search steps (මේ 3 miss වුණාම)
+
+ඒ පස්සේ `syncer/search_steps.py` එකේ **steps 15** පිළිවෙලට ට්‍රයි වෙනවා (`REVERSED`, `TOPIC`, `SUFFIX`, `DURATION`, `SLOWED` …).
+හැම step එකකුත් **version එක සමානද** කියලා බලනවා — Slowed video එකකට original/sped up/වෙන slowed පඩියක් add වෙන්නේ නෑ.
+මොකක්ද match වුණේ කියලා log line එකේ `method` එකෙන් පේනවා, summary එකේ `Matched by extra step: SUFFIX ×2` line එකෙන් සම්පූර්ණ දෙය බලන්න පුළුවන්.
+සම්පූර්ණ විස්තර: [13-search-steps](13-search-steps.md)
+
 ## 5b. Playlist නම
 
 ```python

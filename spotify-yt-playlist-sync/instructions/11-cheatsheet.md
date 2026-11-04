@@ -61,6 +61,9 @@ python -m syncer.app --db-summary
 # playlist name + link (YouTube API එකෙන්, read-only)
 python -m syncer.app --playlist-title
 
+# extra search steps 15 ලැයිස්තුව
+python -m syncer.app --steps
+
 # state backup
 cp data/sync-state.json ~/sync-state-$(date +%F).json
 

@@ -17,6 +17,7 @@
 | [`10-faq.md`](10-faq.md) | "එකම සින්දුව ආයේ add වුණොත්?", batch size, logs… | ඕන වෙලාවක |
 | [`11-cheatsheet.md`](11-cheatsheet.md) | එක පිටුවේ සියලු commands/vars | print කරලා තියාගන්න |
 | [`12-dry-run.md`](12-dry-run.md) | **Dry run** — checkbox, env var, schedule switch, report කියවන විදිය | **පළමු run එකට කලින්** |
+| [`13-search-steps.md`](13-search-steps.md) | **Search steps 15** — match නොවුණු සින්දු හොයන වෙන වෙනම ක්‍රම, version රීතිය, අලුත් step එකක් දාන විදිය | match එකක් වැරදි නම් |
 | [`secrets-template.md`](secrets-template.md) | ඔයාගේ secrets එකතුවක් ලියලා තියාගන්න template | copy/paste |
 
 ## ඉක්මන් ලින්ක්
@@ -26,5 +27,6 @@
 - Secrets table: [`01-repository-secrets.md`](01-repository-secrets.md)
 - මොකක් හරි කැඩුණොත්: [`07-troubleshooting.md`](07-troubleshooting.md)
 - Cookie එක leak වුණා නම්: [`08-security-and-cookie-hygiene.md`](08-security-and-cookie-hygiene.md)
+- සින්දුවක් match වුණේ නැත්නම් / වැරදි සින්දුවක් ආවොත්: [`13-search-steps.md`](13-search-steps.md)
 
 > මතක තියාගන්න: මේ sync එක **one-way**. YouTube එකෙන් කියවනවා විතරයි, Spotify එකට add කරනවා විතරයි. සින්දු මකන්නේ නෑ.
