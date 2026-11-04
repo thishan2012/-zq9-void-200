@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-11-04 (search steps)
+
+### Fifteen separate extra search steps (and the slowed-version rule)
+
+The three original methods (STRICT, LOOSE, DETAIL) stay exactly as they were. After them, a new module
+`syncer/search_steps.py` runs up to **fifteen independent steps**, each one reported by name:
+
+| # | Code | What it does |
+|---|---|---|
+| 1 | `REVERSED` | artist credit on the right of the dash (`QUERO AMOR - SXYGX x FYU`) |
+| 2 | `SINGLE` | collab credit searched one artist at a time |
+| 3 | `CHANNEL` | uploader/channel name as the artist |
+| 4 | `TOPIC` | `Artist - Topic` channels |
+| 5 | `SUFFIX` | cut uploader marketing (`HDN | VIRAL PHONK` → `HDN`) |
+| 6 | `COUNTRY` | accents/marks folded (`CORTA NO SALÃO` ↔ `CORTA NO SALAO`) |
+| 7 | `FEAT` | featured artist as the main artist |
+| 8 | `DURATION` | several versions of one title → choose by video duration |
+| 9 | `ARTISTS` | the title searched with every credited artist |
+| 10 | `SHORT` | 3-letter titles (`LUZ`) only with a matching artist |
+| 11 | `ARTISTLESS` | title-only search |
+| 12 | `EXACT` | words without version labels compared exactly |
+| 13 | `WORDSET` | same words in another order |
+| 14 | `SLOWED` | an explicit `"<song> slowed"` search |
+| 15 | `UPLOADER` | uploader name + title in one query |
+
+* **The recording never changes.** Every step accepts a track only when the version agrees: a Slowed video
+  is never added as the original, a sped-up edit, a remix, or a different slowed step (Super ↔ Ultra is
+  allowed, because uploaders use the two interchangeably).
+* **Artist conflicts stop a guess.** When the video credits an artist that the Spotify track does not have,
+  the match is refused - so `DESTELLO - HDN` is not added as somebody else's `HDN`.
+* **Ambiguity is never resolved by chance:** a step returns a track only when exactly one candidate fits.
+* Report: the per-song line carries the matching step (`· SUFFIX ·`), and the summary gets
+  `Matched by extra step: SUFFIX ×2, TOPIC ×1`. A miss logs which steps were tried.
+* `python -m syncer.app --steps` prints the list; `MATCHER_VERSION` is now **2**, so songs remembered as
+  skipped get one more try with the new rules.
+* Title parsing also improved: `Song - Artist` order, `x`/`×`/`,`/`&` collabs, `feat.` credits,
+  `Artist ~ Song` and `Song || Artists` forms, marketing tags, and the channel as a last-resort artist.
+* Tests: **118** (`tests/test_search_steps.py` covers each step, the version rule and the artist conflict).
+
 ## 2026-11-04 (newest)
 
 ### The playlist name and link are in the report

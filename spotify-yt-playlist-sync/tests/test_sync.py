@@ -60,7 +60,11 @@ class Tests(unittest.TestCase):
         self.assertEqual(app.metadata(VIDEO), ('Artist', 'Song (Official Video)'))
         self.assertEqual(app.choose_match(*app.metadata(VIDEO), [TRACK]), TRACK)
         self.assertIsNone(app.choose_match('Wrong artist', 'Song', [TRACK]))
-        self.assertIsNone(app.metadata({'title': 'Song', 'channel': 'Uploader'}))
+        # A title with no credit falls back to the channel name as the artist.
+        self.assertEqual(app.metadata({'title': 'Song', 'channel': 'Uploader'}), ('Uploader', 'Song'))
+        # Generic upload channels ("Slowed Vibes", "Music", "… - Topic") are no credit.
+        self.assertIsNone(app.metadata({'title': 'Song', 'channel': 'Slowed Vibes'}))
+        self.assertIsNone(app.metadata({'title': 'Song', 'channel': 'Music'}))
     def test_regular_video_uses_artist_credit_in_description(self):
         video = {'id': 'v2', 'title': 'VISION SLOWED', 'channel': 'Music Video Uploader',
                  'description': 'UdieNnx - VISION SLOWED\nSubscribe for more music!'}

@@ -134,7 +134,7 @@ export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
 export YOUTUBE_API_KEY='…'
 # optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SPOTIFY_BATCH_SIZE
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
-.venv/bin/python -m unittest discover -s tests -v   # 96 tests
+.venv/bin/python -m unittest discover -s tests -v   # 118 tests
 ```
 
 The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
@@ -155,7 +155,12 @@ playlist has the same name, so one name is enough — it comes from `playlists.l
    to the 4000-character limit, so a 200-song playlist produces ~3 messages instead of a dozen. Anything
    beyond the cap is summarised with an "omitted" note and left in the Actions log. If Telegram is not
    configured or the send fails, the same report is printed in the Actions log.
-4. **A song is reported at most twice.** A skip (`No confident …`, unavailable, same track in the run) is
+4. **Fifteen extra search steps** run after the three matching methods (`REVERSED`, `SINGLE`, `CHANNEL`,
+   `TOPIC`, `SUFFIX`, `COUNTRY`, `FEAT`, `DURATION`, `ARTISTS`, `SHORT`, `ARTISTLESS`, `EXACT`, `WORDSET`,
+   `SLOWED`, `UPLOADER` - see [instructions/13-search-steps.md](instructions/13-search-steps.md)). Every
+   step keeps the recording identical (a Slowed video is only ever added as that slowed edit) and refuses
+   to guess when the artists conflict. Each match is labelled with the step that found it.
+5. **A song is reported at most twice.** A skip (`No confident …`, unavailable, same track in the run) is
    logged once and then remembered in `data/sync-state.json` under `skipped`; a failure is logged twice
    (`… logged once more, then go quiet` → `… last time logged`) and remembered under `failures`. From then
    on the song is silent: no Telegram entry, no count, no Spotify search. Delete the entry (or add a
