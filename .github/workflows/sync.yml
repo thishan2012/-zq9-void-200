@@ -19,8 +19,11 @@ name: YouTube to Spotify sync
 #   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
 #   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
 #   vars.COMMIT_NAME / COMMIT_EMAIL  optional: who the database commit is
-#                                   made by (default thishcrvwqe-bot; the email
-#                                   must stay the bot's for the token to be allowed)
+#                                   made by. Default thishcrvwqe-bot with an
+#                                   address that belongs to no account, so GitHub
+#                                   prints that name. If the repository rejects
+#                                   the push, the step retries as the built-in
+#                                   bot (history then says github-actions[bot]).
 #   manual run only: the reset_db input (none / history / playlist / all)
 #   drops part of the sync database before syncing - the emergency switch,
 #   never touches the Spotify playlist, keeps a .bak copy of the file
@@ -209,40 +212,56 @@ jobs:
       - name: Save sync database
         if: ${{ always() && steps.sync.outcome != 'skipped' }}
         env:
-          # Committer name for the database commit. Change the repository
-          # variable COMMIT_NAME to use another one; the email must stay the
-          # bot's unless a personal token is used for the push.
+          # GitHub prints a commit's author *account* in the history, and an
+          # account is looked up by the author e-mail. The built-in bot's
+          # address therefore always shows "github-actions[bot]" no matter what
+          # the name says. An address that belongs to no account makes GitHub
+          # print the git name instead - which is what we want here.
+          # Both are overridable from the repository variables.
           COMMIT_NAME: ${{ vars.COMMIT_NAME || 'thishcrvwqe-bot' }}
-          COMMIT_EMAIL: ${{ vars.COMMIT_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}
+          COMMIT_EMAIL: ${{ vars.COMMIT_EMAIL || 'thishcrvwqe-bot@users.noreply.github.com' }}
+          BOT_EMAIL: '41898282+github-actions[bot]@users.noreply.github.com'
         run: |
           if git diff --quiet -- data/sync-state.json; then
             echo 'No database changes.'
             exit 0
           fi
-          # Commits are made by the workflow's own bot identity, but the name is
-          # ours: "github-actions[bot]" in the history says nothing about what
-          # the run did. The email stays the bot's, because GitHub only lets the
-          # built-in token commit as that account.
           git config user.name "$COMMIT_NAME"
           git config user.email "$COMMIT_EMAIL"
-          echo "::notice::Database commit by $COMMIT_NAME <$COMMIT_EMAIL>"
           git add data/sync-state.json
           if [ -f data/sync-state.json.bak ]; then
             git add -f data/sync-state.json.bak
           fi
           if [ "$DRY_RUN" = "true" ]; then
-            git commit -m 'Update skip/failure bookkeeping (dry run)'
+            MESSAGE='Update skip/failure bookkeeping (dry run)'
           else
-            git commit -m 'Update playlist sync state'
+            MESSAGE='Update playlist sync state'
           fi
+          git commit -m "$MESSAGE"
           # A changed database must not fail the whole run: the songs were
           # already added to Spotify (or reported as a dry run) at this point.
-          # A rejected push only means the bookkeeping is one run behind.
-          # The run takes minutes; main may have moved on meanwhile. Rebase the
-          # one-file commit on top instead of failing the push.
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}" >/dev/null 2>&1 || git rebase --abort >/dev/null 2>&1 || true
+          # The run takes minutes; main may have moved on meanwhile, so rebase
+          # the one-file commit on top instead of failing the push.
+          rebase() {
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" >/dev/null 2>&1 \
+              || git rebase --abort >/dev/null 2>&1 || true
+          }
+          rebase
           if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            echo "::notice::Database commit by $COMMIT_NAME <$COMMIT_EMAIL>"
             echo 'Database saved.'
+            exit 0
+          fi
+          # Some repository policies only accept the built-in bot as the author.
+          # Losing the bookkeeping would be worse than a bot-looking name, so
+          # retry once as the bot.
+          echo "::warning::Push as $COMMIT_EMAIL was rejected; retrying as the built-in bot (the history will then say github-actions[bot])."
+          git config user.name 'github-actions[bot]'
+          git config user.email "$BOT_EMAIL"
+          git commit --amend --reset-author --no-edit
+          rebase
+          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+            echo 'Database saved (as github-actions[bot]).'
           else
-            echo "::warning::Could not push data/sync-state.json to ${GITHUB_REF_NAME}. The sync itself finished; the skip/failure bookkeeping will be rebuilt by the next run."
+            echo "::warning::Could not push data/sync-state.json to ${GITHUB_REF_NAME}. The sync itself finished; the bookkeeping will be rebuilt by the next run."
           fi

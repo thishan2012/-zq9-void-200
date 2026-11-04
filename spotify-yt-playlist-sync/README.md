@@ -191,8 +191,12 @@ came back to Spotify, or a video that turned public, is therefore found again wi
 that still misses is counted but not reported, so the retry is free for the reader. `--retry-expired` lists
 what the next weekly run would retry.
 
-The database commit is made by **`thishcrvwqe-bot`** (set `vars.COMMIT_NAME` to change the name;
-`vars.COMMIT_EMAIL` must stay the built-in bot address unless a personal token is used for the push).
+The database commit is made by **`thishcrvwqe-bot`**. GitHub prints an author *account* in the history and
+finds that account by the author e-mail, so the built-in bot's address always shows `github-actions[bot]`
+whatever the name says; the default address here belongs to no account, which makes GitHub print the name
+instead. If a repository policy rejects that push, the step retries once as the built-in bot - a
+bot-looking name is better than losing the bookkeeping. Both values come from `vars.COMMIT_NAME` /
+`vars.COMMIT_EMAIL`.
 
 The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). It is git-ignored.
 

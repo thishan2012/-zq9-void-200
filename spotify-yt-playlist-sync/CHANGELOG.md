@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026-11-04 (the commit name really shows now)
+
+Renaming the committer was not enough: GitHub prints a commit's author **account**, and it finds that
+account by the author e-mail. The built-in bot's address always resolves to `github-actions[bot]`, so the
+history still said that whatever the name was.
+
+* The default author address is now `thishcrvwqe-bot@users.noreply.github.com`, which belongs to no
+  account - GitHub therefore prints the git name, **`thishcrvwqe-bot`**.
+* If the push is rejected (some repository policies only accept the bot as the author), the step retries
+  once as `github-actions[bot]` and says so in the log. Losing the bookkeeping would be worse than a
+  bot-looking name.
+
 ## 2026-11-04 (the database commit has a name now)
 
 Every run commits `data/sync-state.json`, and the history said `github-actions[bot]` - which says nothing
