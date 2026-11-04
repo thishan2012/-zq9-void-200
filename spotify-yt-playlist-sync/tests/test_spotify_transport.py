@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlparse
 
 from syncer import app
@@ -9,6 +9,54 @@ class Response:
         self.status_code, self.value = code, value
     def json(self):
         return self.value
+
+class SearchCacheTests(unittest.TestCase):
+    """One Spotify search per distinct query, per run."""
+
+    def setUp(self):
+        self.client = app.Client(0)
+        self.client.http = Mock()
+        self.client.spotify_backend = 'rest'
+        self.client.http.request.return_value = Response(200, {'tracks': {'items': [
+            {'id': 'abc', 'name': 'Song', 'artists': [{'name': 'Artist'}]}]}})
+
+    def test_the_same_query_is_only_sent_once(self):
+        self.assertEqual(self.client.search('Artist', 'Song', 't')[0]['id'], 'abc')
+        self.assertEqual(self.client.search_query('Artist Song', 't')[0]['id'], 'abc')
+        self.assertEqual(self.client.http.request.call_count, 1)
+        self.assertEqual((self.client.searches, self.client.search_reuses), (1, 1))
+
+    def test_case_and_spacing_do_not_matter(self):
+        self.client.search_query('Artist Song', 't')
+        self.client.search_query('  artist   SONG ', 't')
+        self.assertEqual(self.client.http.request.call_count, 1)
+
+    def test_a_different_query_still_goes_to_spotify(self):
+        self.client.search_query('Artist Song', 't')
+        self.client.search_query('Artist Other Song', 't')
+        self.assertEqual(self.client.http.request.call_count, 2)
+        self.assertEqual(self.client.search_reuses, 0)
+
+    def test_callers_get_their_own_list(self):
+        first = self.client.search_query('Artist Song', 't')
+        first.append({'id': 'mutated'})
+        second = self.client.search_query('Artist Song', 't')
+        self.assertEqual([item['id'] for item in second], ['abc'])
+
+    def test_the_cache_is_bounded(self):
+        self.client.http.request.return_value = Response(200, {'tracks': {'items': []}})
+        with patch.object(app, 'SEARCH_CACHE_MAX', 2):
+            for number in range(5):
+                self.client.search_query(f'query {number}', 't')
+        self.assertEqual(len(self.client.search_cache), 2)
+
+    def test_searches_are_spaced_out(self):
+        self.client.pause = 0.4
+        with patch.object(app.time, 'sleep') as sleep:
+            self.client.search_query('Artist Song', 't')
+            self.client.search_query('Artist Song', 't')     # cached: no pause, no request
+        self.assertEqual([round(call.args[0], 1) for call in sleep.call_args_list], [0.4])
+
 
 class SpotifyTransportTests(unittest.TestCase):
     def setUp(self):

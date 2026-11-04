@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-04 (rate limit: fewer, slower, cached searches)
+
+The five new steps work, but each one can cost several searches, so a run is now careful with them:
+run fewer, cache exact, pause between, and slow down only when Spotify says so.
+
+* **One request per distinct query.** `search_query()` caches its answer for the run (case and spacing
+  insensitive, bounded by `SEARCH_CACHE_MAX`), so two steps asking "nulteex shaka" and "shaka" pay for it
+  once. The log line at the end says how much the cache saved: `Spotify searches: 41 real query(s), 17
+  reused from the run cache`.
+* **Extra steps only for songs the classic methods missed.** Already the case, and now pinned by tests:
+  a `STRICT` hit, or a song that is already in the playlist, sends **zero** extra queries.
+* **A gap between searches, and a wider one when Spotify complains.** `SEARCH_PAUSE_SECONDS` (default
+  `0.5 s`, on top of `REQUEST_DELAY_SECONDS`) separates two real searches. After an HTTP **429** the gap
+  doubles for the rest of the run, up to 30 s — on top of the existing `Retry-After` / exponential retry
+  of read requests.
+* **A dead session no longer burns the chain.** A `FatalError` (blocked cookie, 403, changed web-player
+  operation) used to be treated like one failed query, so all 25 steps were spent on the same error. It
+  now stops the chain immediately and fails the run loudly, as it should.
+
+`MATCHER_VERSION` stays **9** (no matching rule changed). Tests: **186**.
+
 ## 2026-11-04 (five more ways to find a song)
 
 The existing steps are untouched; five **new** steps were inserted before the loosest ones, so the chain is

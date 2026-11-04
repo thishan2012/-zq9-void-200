@@ -22,6 +22,7 @@ STATE_PATH = Path('data/sync-state.json')
 OVERRIDES_PATH = Path('data/track-overrides.json')
 BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
+SEARCH_PAUSE_SECONDS = 0.5  # gap between two real searches (on top of REQUEST_DELAY_SECONDS).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
@@ -111,6 +112,13 @@ class Client:
         self.spotify_backend = None
         self.partner_proxy = True
         self.retries = 3
+        # One search per distinct query, per run: the steps overlap a lot
+        # ("Nulteex shaka", "shaka", field queries) and a repeated query only
+        # costs rate limit without ever returning anything different.
+        self.pause = 0          # set from SEARCH_PAUSE_SECONDS by a real run
+        self.search_cache = {}
+        self.searches = 0
+        self.search_reuses = 0
 
     def request(self, method, url, *, fatal=False, write=False, label='Service', proxy=False, **kwargs):
         if proxy:
@@ -139,6 +147,8 @@ class Client:
                 if write:
                     raise UncertainWrite('Spotify add request had a network error; outcome unknown. Check the playlist before clearing the pending entry.') from exc
                 raise (FatalError if fatal else SyncError)(f'{label}: network error during {method} request') from exc
+            if response.status_code == 429:
+                self.cool_down()
             if not write and (response.status_code == 429 or response.status_code >= 500) and attempt < self.retries:
                 attempt += 1
                 wait = max(self.delay, backoff_seconds(response, attempt))
@@ -164,6 +174,11 @@ class Client:
             if write:
                 raise UncertainWrite('Spotify add response was invalid; outcome unknown. Check playlist before clearing pending entry') from exc
             raise (FatalError if fatal else SyncError)('Service returned invalid JSON') from exc
+
+    def cool_down(self):
+        """After a 429, leave a wider gap between searches for the rest of the run."""
+        self.pause = min(30.0, max(1.0, (self.pause or 0.5) * 2))
+        LOG.warning('Spotify is throttling (HTTP 429); searches will now pause %.1fs apart', self.pause)
 
     def token(self, cookie):
         # Community-maintained web-player TOTP versions. This is an unofficial, fragile flow.
@@ -365,6 +380,25 @@ class Client:
         query = ' '.join(str(query or '').split())
         if not query:
             return []
+        key = query.casefold()
+        if key in self.search_cache:
+            self.search_reuses += 1
+            return list(self.search_cache[key])   # a copy: callers extend their own list
+        if len(self.search_cache) >= SEARCH_CACHE_MAX:
+            # Keep the guard simple and cheap: drop the oldest entry instead of
+            # letting one long run hold thousands of result lists in memory.
+            self.search_cache.pop(next(iter(self.search_cache)))
+        self.searches += 1
+        results = self._search_query(query, token)
+        self.search_cache[key] = results
+        return list(results)
+
+    def _search_query(self, query, token):
+        """The single real search behind search_query() (which caches)."""
+        if self.pause:
+            # Searches are the request-heavy part of a run: a small extra pause
+            # keeps a song's steps in the same order but never in one burst.
+            time.sleep(self.pause)
         if self.spotify_backend == 'rest':
             data = self.request('GET', 'https://api.spotify.com/v1/search', headers={'Authorization': f'Bearer {token}'},
                     params={'q': query, 'type': 'track', 'limit': 10}, proxy=True, label='Spotify search')
@@ -1768,6 +1802,10 @@ def main():
         if delay < 0 or delay > 60 or not delay < float('inf'):
             raise ValueError('delay out of range')
         client.delay = delay
+        pause = float(os.environ.get('SEARCH_PAUSE_SECONDS', str(SEARCH_PAUSE_SECONDS)))
+        if pause < 0 or pause > 60 or not pause < float('inf'):
+            raise ValueError('search pause out of range')
+        client.pause = pause
         batch_size = int(os.environ.get('SPOTIFY_BATCH_SIZE', str(BATCH_MAX)))
         if not 1 <= batch_size <= BATCH_MAX:
             raise ValueError('batch size out of range')
@@ -1815,6 +1853,9 @@ def main():
         if extra:
             summary += '\nMatched by extra step: ' + ', '.join(
                 f'{code} ×{number}' for code, number in sorted(extra.items(), key=lambda item: -item[1]))
+        searches, reuses = getattr(client, 'searches', 0), getattr(client, 'search_reuses', 0)
+        if isinstance(searches, int) and isinstance(reuses, int) and (searches or reuses):
+            LOG.info('Spotify searches: %d real query(s), %d reused from the run cache', searches, reuses)
         if fatal_reason:
             summary += f'\nRun stopped: {issue_text(fatal_reason)}'
         LOG.info(summary.replace('\n\nPlaylist', '\nPlaylist'))

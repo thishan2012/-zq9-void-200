@@ -109,6 +109,16 @@ Uploader `Artist - Song` කියලා ලියනවා, ඒත් parser �
 * **`TITLEONLY`** — artist කෙනෙක්වත් නැති වුණත්, duration ගැලපෙනවා + Spotify track එකේ නම **video title එක ඇතුළේ**
   තියෙනවා නම් ගන්නවා. වෙන සින්දුවක් එක වචනයක් බෙදාගෙන ආවොත් ඒක refuse (duration ගැලපුණත්).
 
+## 2b1a. Rate limit — search ගණන පාලනය
+
+Steps 25ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:
+
+1. **Extra steps යන්නේ skip වුණ සින්දුවලට විතරයි.** `STRICT`/`LOOSE`/`DETAIL` වලින් හම්බ වුණොත්, නැත්නම් සින්දුව දැනටමත් playlist එකේ තියෙනවා නම් → අමතර query **0**.
+2. **එකම query එක දෙපාරක් යන්නේ නෑ.** Run එක ඇතුළේ cache එකක් තියෙනවා (`SEARCH_CACHE_MAX` = 5000). `Nulteex shaka` යැව්වට පස්සේ `shaka` එකට ආයේ request එකක් යන්නේ නෑ. Run එක ඉවර වෙද්දී log එකේ: `Spotify searches: 41 real query(s), 17 reused from the run cache`.
+3. **Search දෙකක් අතරේ පරතරයක්.** `SEARCH_PAUSE_SECONDS` (default `0.5s`) — `REQUEST_DELAY_SECONDS` (default 2s) උඩින්.
+4. **429 ආවොත්** `Retry-After` එක බලලා ආයේ උත්සාහ කරනවා (read requests 3 වතෙක්), ඒ වගේම ඒ run එකේ ඉතුරු searches අතරේ පරතරය **දෙගුණ** වෙනවා — උපරිම `30s`.
+5. **Session එක මැරිලා නම් (403 / blocked cookie) ඉතුරු steps දුවන්නේ නෑ** — එකම error එකට steps 25ක් වියදම් කරන එක නවත්තලා, run එක එහෙමම fail වෙනවා.
+
 ## 2b1b. Skip වෙන සින්දුවක් අතින් add කරන්න (manual pick)
 
 Report එකේ skip වෙන හැම සින්දුවකටම (මුල් 5ට) Spotify search link එකකුයි, override key එකකුයි දෙනවා:

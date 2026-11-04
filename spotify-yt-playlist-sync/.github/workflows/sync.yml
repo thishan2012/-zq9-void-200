@@ -15,6 +15,7 @@ name: YouTube to Spotify sync
 #   secrets.TELEGRAM_CHAT_ID       Telegram chat id (optional, full log)
 #   YOUTUBE_PLAYLIST / SPOTIFY_PLAYLIST  secrets, else variables
 #   vars.REQUEST_DELAY_SECONDS     optional, default 2 s
+#   vars.SEARCH_PAUSE_SECONDS      optional, default 0.5 s (extra gap between two searches)
 #   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
 #   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
 
@@ -87,6 +88,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           # Optional tuning; also accepted from the Secrets tab by mistake.
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
+          SEARCH_PAUSE_SECONDS: ${{ vars.SEARCH_PAUSE_SECONDS || secrets.SEARCH_PAUSE_SECONDS || '0.5' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
         run: |
           echo "::notice::Dry run = $DRY_RUN"
@@ -106,6 +108,7 @@ jobs:
         if: ${{ always() && steps.sync.outcome != 'skipped' }}
         env:
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
+          SEARCH_PAUSE_SECONDS: ${{ vars.SEARCH_PAUSE_SECONDS || secrets.SEARCH_PAUSE_SECONDS || '0.5' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
           SYNC_ENABLED: ${{ vars.SYNC_ENABLED }}
           # Only the playlist name is read here (one read-only API call).
@@ -131,6 +134,7 @@ jobs:
             echo "| Dry run | \`$DRY_RUN\` |"
             echo "| Scheduled writes enabled | \`${SYNC_ENABLED:-false}\` |"
             echo "| Request delay | \`$REQUEST_DELAY_SECONDS\` s |"
+            echo "| Search pause | \`$SEARCH_PAUSE_SECONDS\` s |"
             echo "| Batch size | \`$SPOTIFY_BATCH_SIZE\` |"
             echo
             echo 'Per-song detail (ADD / WOULD ADD / SKIP / FAIL) is in the "Sync playlists" log above and in the Telegram full log.'

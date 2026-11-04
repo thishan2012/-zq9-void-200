@@ -179,6 +179,23 @@ class RateLimitTests(unittest.TestCase):
                 client.existing_tracks('p', 'token')
         self.assertEqual(client.http.request.call_count, 3)  # one try + two retries
 
+    def test_a_429_widens_the_gap_between_searches(self):
+        client = self.client()
+        client.retries = 0                           # one 429, no retry loop
+        client.pause = 0.5
+        client.http.request.return_value = self.Response(429, headers={'Retry-After': '1'})
+        with self.assertRaises(app.SyncError):
+            client.request('GET', 'https://api.spotify.com/v1/search', label='Spotify search')
+        self.assertEqual(client.pause, 1.0)          # doubled for the rest of the run
+        client.cool_down()
+        self.assertEqual(client.pause, 2.0)
+
+    def test_the_cooldown_is_capped(self):
+        client = self.client()
+        client.pause = 20
+        client.cool_down()
+        self.assertEqual(client.pause, 30)
+
     def test_backoff_uses_retry_after_then_exponential(self):
         self.assertEqual(app.backoff_seconds(self.Response(429, headers={'Retry-After': '7'}), 1), 7)
         self.assertEqual(app.backoff_seconds(self.Response(429, headers={'Retry-After': 'bad'}), 2), 10)

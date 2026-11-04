@@ -957,6 +957,10 @@ def search_more(client, video, parsed, token, state, keep_evidence=False):
     for step in build_steps(video, parsed, state):
         try:
             track = step.run(client, token)
+        except app.FatalError:
+            # A dead token / blocked session is not a "this query failed": stop
+            # here instead of spending the remaining steps on the same error.
+            raise
         except app.SyncError:
             continue
         tried.append(step.code)
