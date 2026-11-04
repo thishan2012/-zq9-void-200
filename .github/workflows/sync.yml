@@ -18,6 +18,7 @@ name: YouTube to Spotify sync
 #   vars.SEARCH_PAUSE_SECONDS      optional, default 0.5 s (extra gap between two searches)
 #   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
 #   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
+#   (the Sunday run also retries skips older than 7 days - no setting needed)
 
 on:
   schedule:
@@ -29,6 +30,11 @@ on:
     # Scheduled runs are DRY RUNS unless the repository variable SYNC_ENABLED
     # is set to 'true'.
     - cron: '0 */4 * * *'
+    # Weekly retry (Sunday 03:00 UTC = 08:30 SL). Only this run re-asks about
+    # songs that were skipped more than RETRY_AFTER_DAYS (7) days ago, so a track
+    # that came back to Spotify or a video that turned public is found again
+    # automatically. One run a week: it costs almost no rate limit.
+    - cron: '0 3 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -53,6 +59,8 @@ jobs:
       #   manual run      -> honour the dry_run checkbox (checked = preview)
       #   scheduled run   -> dry run unless SYNC_ENABLED == 'true'
       DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) || (github.event_name == 'schedule' && vars.SYNC_ENABLED != 'true') }}
+      # The Sunday 03:00 run is the weekly one: it also retries skipped songs.
+      RETRY_SKIPPED: ${{ github.event_name == 'schedule' && github.event.schedule == '0 3 * * 0' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,8 +98,10 @@ jobs:
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
           SEARCH_PAUSE_SECONDS: ${{ vars.SEARCH_PAUSE_SECONDS || secrets.SEARCH_PAUSE_SECONDS || '0.5' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
+          RETRY_SKIPPED: ${{ env.RETRY_SKIPPED }}
         run: |
           echo "::notice::Dry run = $DRY_RUN"
+          echo "::notice::Weekly skip retry = $RETRY_SKIPPED"
           if [ "$DRY_RUN" = "true" ]; then
             python -m syncer.app --dry-run
           else
@@ -107,6 +117,7 @@ jobs:
       - name: Job summary
         if: ${{ always() && steps.sync.outcome != 'skipped' }}
         env:
+          RETRY_SKIPPED: ${{ github.event_name == 'schedule' && github.event.schedule == '0 3 * * 0' }}
           REQUEST_DELAY_SECONDS: ${{ vars.REQUEST_DELAY_SECONDS || secrets.REQUEST_DELAY_SECONDS || '2' }}
           SEARCH_PAUSE_SECONDS: ${{ vars.SEARCH_PAUSE_SECONDS || secrets.SEARCH_PAUSE_SECONDS || '0.5' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
@@ -133,6 +144,7 @@ jobs:
             echo "| Trigger | \`${{ github.event_name }}\` |"
             echo "| Dry run | \`$DRY_RUN\` |"
             echo "| Scheduled writes enabled | \`${SYNC_ENABLED:-false}\` |"
+            echo "| Weekly skip retry | \`${RETRY_SKIPPED:-false}\` |"
             echo "| Request delay | \`$REQUEST_DELAY_SECONDS\` s |"
             echo "| Search pause | \`$SEARCH_PAUSE_SECONDS\` s |"
             echo "| Batch size | \`$SPOTIFY_BATCH_SIZE\` |"

@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-11-04 (weekly retry of skipped songs)
+
+The schedule now has a second cron: **Sunday 03:00 UTC** (`0 3 * * 0`). Only that run sets `RETRY_SKIPPED`,
+and only then does `sync()` release the remembered skips older than **`RETRY_AFTER_DAYS` (7)** days and search
+them once more:
+
+* a track that came back to Spotify (copyright removal reversed) is added with no manual step,
+* a video that turned public is already handled by `changed_video()` on any run,
+* a song that misses again is **counted but not reported** - the retry costs the reader nothing,
+* a match is always reported (it is an ADD).
+
+The six 4-hourly runs are unchanged, so a manual report is still not repeated the next hour.
+`--retry-expired` lists what the next weekly run would release (read-only), and skip entries now carry `at`
+(the time they gave up) next to `since`; entries written before this change count as expired once.
+
+Tests: **212**.
+
 ## 2026-11-04 (a skip is reported once, and can be retried)
 
 A run after the rule bump re-reported the same two songs (DESTELLO, LOUCARA) and offered their pick links
