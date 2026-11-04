@@ -268,6 +268,20 @@ python -m syncer.app --reset-db history --yes                # statistics වි
 * `data/sync-state.json.bak` එකක් ඉතුරු වෙනවා (ඕන නැත්නම් `--no-backup`).
 * **Actions වලින්:** Run workflow → *Emergency: reset the sync database* → scope එක තෝරන්න. ඒක sync එකට **කලින්** දුවනවා, ඒ නිසා එකම run එකේදී database එක rebuild වෙනවා. Dry-run box එක tick කරලා තිබ්බොත් reset එක **preview** එකක් විතරයි.
 
+## 2b7. Credit splitting fix (2026-11-04)
+
+`REVERSED` 17 real queries ගිහින් 0ක් හම්බුණේ **bug දෙකක්** නිසා:
+
+| bug | උදාහරණය | දැන් |
+|---|---|---|
+| ` x ` splitter එක නමක තියෙන **X** එකත් කැපුවා | `MC X & DJ Y` → `["MC", "DJ Y"]` (Spotify එකේ "MC" කියලා artist කෙනෙක් නෑ) | `["MC X", "DJ Y"]` |
+| Spotify එකේ එකම artist නමක් විදිහට තියෙන collab එක conflict එකක් විදිහට පෙනුණා | artist `MC X & DJ Y` vs credit `MC X` / `DJ Y` → conflict | **match** (වචන ඇතුළෙත් compare කරනවා) |
+
+* සැබෑ collab markers තාම split වෙනවා: `A x B`, `DJ NEO x MC X`, `Nulteex, ewyx`, `MC KIT & DJ X`.
+* වෙන artist කෙනෙක් තාම **conflict** — ලිහිල් වුණේ නෑ.
+* `MATCHER_VERSION` **14** → මතක තියෙන skips වලට තව එක try එකක්.
+* `--stats` table එකේ දැන් **tried** වුණ හැම step එකකටම row එකක් (`cached` = queries ටික cache එකෙන්).
+
 ## 2b1a. Rate limit — search ගණන පාලනය
 
 Steps 29ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:

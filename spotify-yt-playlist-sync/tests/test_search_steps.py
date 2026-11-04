@@ -672,6 +672,41 @@ class UploaderNameTests(unittest.TestCase):
         self.assertEqual(app.artist_candidates('Signals.'), ['Signals'])
         self.assertEqual(app.artist_candidates('Mr.Kitty'), ['Mr.Kitty'])
 
+    def test_a_lone_x_in_a_name_is_not_a_collaboration(self):
+        # "MC X" / "DJ X" are names: splitting on the x left "MC" and "DJ",
+        # a name no Spotify artist has, so the REVERSED search could not find them.
+        self.assertEqual(app.artist_candidates('MC X'), ['MC X'])
+        self.assertEqual(app.artist_candidates('DJ X'), ['DJ X'])
+        self.assertEqual(app.artist_candidates('MC X & DJ Y'), ['MC X', 'DJ Y'])
+        self.assertEqual(app.artist_candidates('MC X, DJ Y'), ['MC X', 'DJ Y'])
+        self.assertEqual(app.artist_candidates('DJ NEO x MC X'), ['DJ NEO', 'MC X'])
+        # a real collaboration marker still splits
+        self.assertEqual(app.artist_candidates('A x B'), ['A', 'B'])
+
+
+class CombinedCreditArtistTests(StepTestCase):
+    """Spotify sometimes keeps a whole collaboration in one artist name."""
+
+    def test_a_track_credited_to_the_whole_collab_is_found(self):
+        # "Song - MC X & DJ Y" with Spotify's single artist "MC X & DJ Y" used to
+        # be a conflict, because neither half matched the joined string.
+        video_item = video('Song - MC X & DJ Y')
+        found, _ = self.run_step(search_steps.ReversedCreditStep, video_item,
+                                 Catalog([track('t1', 'Song', 'MC X & DJ Y')]))
+        self.assertEqual(found['id'], 't1')
+
+    def test_a_collaborator_alone_is_enough(self):
+        video_item = video('Song - MC X & DJ Y')
+        found, _ = self.run_step(search_steps.ReversedCreditStep, video_item,
+                                 Catalog([track('t1', 'Song', 'DJ Y')]))
+        self.assertEqual(found['id'], 't1')
+
+    def test_another_artist_is_still_a_conflict(self):
+        video_item = video('Song - MC X & DJ Y')
+        found, _ = self.run_step(search_steps.ReversedCreditStep, video_item,
+                                 Catalog([track('t1', 'Song', 'Somebody Else')]))
+        self.assertIsNone(found)
+
 
 class AlbumAwareStepTests(StepTestCase):
     def test_the_slowed_edit_living_on_a_slowed_album_wins(self):
