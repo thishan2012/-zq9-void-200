@@ -12,7 +12,7 @@ import struct
 import time
 import unicodedata
 from difflib import SequenceMatcher
-from urllib.parse import parse_qs, urlencode, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, urlencode, urlparse, urlsplit, urlunsplit
 
 import requests
 
@@ -24,7 +24,8 @@ BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
-MATCHER_VERSION = 8  # bump when matching rules change: skipped songs get one more try.
+PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
+MATCHER_VERSION = 9  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -353,6 +354,17 @@ class Client:
     def search(self, artist, title, token):
         # Discard presentation-only labels, while keeping the version in the query.
         query = ' '.join(part for part in (artist, canonical_track_title(title)) if part)
+        return self.search_query(query, token)
+
+    def search_query(self, query, token):
+        """One Spotify search for a ready-made query string.
+
+        Separate from search() so a step can use field operators
+        (track:SHAKA artist:Nulteex) or a list of query variants.
+        """
+        query = ' '.join(str(query or '').split())
+        if not query:
+            return []
         if self.spotify_backend == 'rest':
             data = self.request('GET', 'https://api.spotify.com/v1/search', headers={'Authorization': f'Bearer {token}'},
                     params={'q': query, 'type': 'track', 'limit': 10}, proxy=True, label='Spotify search')
@@ -731,6 +743,18 @@ def generic_channel(text):
     words = set(normalized(text).split())
     return (not words or 'release' in words or 'releases' in words
             or words.issubset(TAG_WORDS | {'topic', 'records', 'label'}))
+
+# A generic word is not a name: "Uploader", "Music", "Phonk" must never become an
+# artist credit, or every track would look like a different artist.
+GENERIC_NAMES = {'uploader', 'unknown', 'various', 'artists', 'artist', 'music', 'channel',
+                 'official', 'releases', 'release', 'topic', 'none', 'null'}
+
+
+def is_generic_name(name):
+    """True when the text is a placeholder or a genre word, not an artist name."""
+    words = set(normalized(name).split())
+    return not words or words.issubset(GENERIC_NAMES | TAG_WORDS)
+
 
 def plain_name(name):
     """The bare word of an uploader name: "HDN🎹" -> "HDN", "Espato." -> "Espato".
@@ -1199,6 +1223,21 @@ def utf16_chunks(text, limit=4000):
     return [chunk for chunk in chunks if chunk.strip()]
 
 
+def search_link(event):
+    """A Spotify search link for a song we could not match, for a manual pick.
+
+    The report is the only place a human sees the skipped songs, so it carries
+    the two things needed to fix one by hand: the link to paste in the browser
+    and the key to use in data/track-overrides.json.
+    """
+    title = str(event.get('title') or '').strip()
+    if not title:
+        return ''
+    query = quote(title, safe='')
+    video = event.get('video_id') or ''
+    return f"https://open.spotify.com/search/{query}  →  track-overrides.json: \"{video}\": \"<track id>\""
+
+
 def summary_message(summary, events):
     """One compact message: the counts plus why songs were skipped, no song list.
 
@@ -1215,6 +1254,14 @@ def summary_message(summary, events):
         lines += ['', 'Why songs were skipped:']
         lines += [f'  • {number} × {reason}'
                   for reason, number in sorted(reasons.items(), key=lambda item: -item[1])]
+    # The songs nobody could place get a ready search link and the exact key for
+    # data/track-overrides.json, right where they are read.
+    unmatched = [event for event in events if event['status'] == 'SKIP'
+                 and event['reason'] == 'No confident artist/title/version match'][:PICK_LINKS_PER_RUN]
+    if unmatched:
+        lines += ['', 'Not found automatically - pick one and add it by hand:']
+        for event in unmatched:
+            lines += [f'  • {event["title"]}', f'    {search_link(event)}']
     lines += ['', 'Per-song details follow.', 'Full log: the Actions run log.']
     return '\n'.join(lines)
 
@@ -1246,6 +1293,13 @@ def activity_messages(header, events, limit=4000):
             # For a successful add the reason is the same sentence every time;
             # the status already says it.
             bits.append(event['reason'])
+            # A song nobody could place: hand over the search link and the exact
+            # key for data/track-overrides.json, so it can be added by hand.
+            if (event['status'] == 'SKIP' and event['reason'] == 'No confident artist/title/version match'
+                    and event.get('n', 0) <= PICK_LINKS_PER_RUN):
+                # Only the first few: each link is long, and the message cap is
+                # what keeps a 200-song run inside six messages.
+                bits.append(f'pick: {search_link(event)}')
         block = f"#{event['n']} {event['status']}: {event['title']}"
         if bits:
             block += ' — ' + ' · '.join(bits)

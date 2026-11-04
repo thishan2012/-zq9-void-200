@@ -1,7 +1,7 @@
-# 🔎 13 — Extra search steps (20 වෙන වෙනම ක්‍රම)
+# 🔎 13 — Extra search steps (25 වෙන වෙනම ක්‍රම)
 
 මේ ගොනුව කියවන්නේ **"ඇයි මේ සින්දුව add වුණේ නැත්තේ?"** කියන ප්‍රශ්නයට උත්තර දෙන්න.
-පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 20 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
+පළමු ක්‍රම 3 (`STRICT` → `LOOSE` → `DETAIL`) miss වුණාම, ඊට පස්සේ **මේ 25 ක්‍රම පිළිවෙලට** ට්‍රයි වෙනවා.
 හැම එකක්ම වෙන වෙනම කුඩා experiment එකක් — කැඩුණොත් අනිත් ඒවාට බලපෑමක් නෑ, අයින් කරන්නත් පුළුවන්.
 
 > 👉 ලොජික් එක තියෙන්නේ `syncer/search_steps.py` එකේ. ලැයිස්තුව බලන්න: `python -m syncer.app --steps`
@@ -26,7 +26,7 @@
 
 ---
 
-## 2. Steps 20
+## 2. Steps 25
 
 | # | Code | මොකද කරන්නේ | උදාහරණය |
 |---|---|---|---|
@@ -45,11 +45,16 @@
 | 13 | `WORDSET` | වචන එකම, පිළිවෙල වෙනස් | `Funk Midu Shange` ↔ `Midu Shange Funk` |
 | 14 | `SLOWED` | `"<song> slowed"` කියලා search — **slowed එකක් විතරයි** ගන්නේ | `FUNK ABNORMAL (SLOWED)` |
 | 15 | `UPLOADER` | uploader නම + title එක එකට search | `Slowed by X` channels |
-| 16 | `BROKEN` | dash එකේ දෙපැත්ත **අනිත් පැත්තට** ලියලා තියෙනවා (`DESTELLO - HDN` = artist `HDN`, song `DESTELLO`) | `DESTELLO - HDN` + channel `HDN🎹` |
-| 17 | `ALBUM` | version/naming එක **album එකේ** තියෙනවා (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album එකේ | 
-| 18 | `PART` | Spotify එකේ `Pt. 1` / `Pt. 2` විදිහට කැඩිච්ච titles එකම සින්දුව විදිහට | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
-| 19 | `POPULAR` | එකම title එකේ matches කීපයක් → **වැඩිම play ගණන** ඇති එක (play ගණනක් නැත්නම්/සමාන නම් → තෝරන්නේ නෑ) | duplicate uploads |
-| 20 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
+| 16 | `FIELD` | Spotify field search: `track:"SHAKA" artist:"Nulteex"` — නමයි artist එකයි මික් වෙන්නේ නෑ | collab uploads |
+| 17 | `VARIANTS` | query shapes 3ක් එකට: artist+title+version, artist+title, title+version | `SHAKA (SLOWED)` |
+| 18 | `DURVER` | title එක ටිකක් වෙනස් වුණත් duration ±3s + version ගැලපුණොත් ගන්නවා | `LOUCARA FUNK!` |
+| 19 | `CLEANARTIST` | title clean කරලා ඉතුරු වෙන artist එකෙන් search | `DESTELLO - HDN \| VIRAL PHONK` |
+| 20 | `TITLEONLY` | title විතරක් — duration එකයි "track නම title එකේ තියෙනවද" කියලා දෙකෙන්ම ඔප්පු වුණොත් විතරයි | `MONTAGEM RUNE - WUYS x KIT` |
+| 21 | `BROKEN` | dash එකේ දෙපැත්ත **අනිත් පැත්තට** ලියලා තියෙනවා (`DESTELLO - HDN` = artist `HDN`, song `DESTELLO`) | `DESTELLO - HDN` + channel `HDN🎹` |
+| 22 | `ALBUM` | version/naming එක **album එකේ** තියෙනවා (`X - Single`, `X (Slowed)`) | `FUNK TONTO (Slowed)` album එකේ | 
+| 23 | `PART` | Spotify එකේ `Pt. 1` / `Pt. 2` විදිහට කැඩිච්ච titles එකම සින්දුව විදිහට | `FUNK TONTO, Pt. 2 (feat. Mc Ombrinho)` |
+| 24 | `POPULAR` | එකම title එකේ matches කීපයක් → **වැඩිම play ගණන** ඇති එක (play ගණනක් නැත්නම්/සමාන නම් → තෝරන්නේ නෑ) | duplicate uploads |
+| 25 | `TOPRESULT` | **අන්තිම උත්සාහය:** search එකේ **මුලින්ම එන result එක** ගන්නවා — ඒත් ඒක ඇත්තටම ඒ සින්දුවද කියලා 3කින් බලලා | පහළ `TOPRESULT` කොටස බලන්න |
 
 **හැම step එකකුත් අන්තිමට artist conflict එක බලනවා** (`artist_ok()`): video එකේ title එකේ artist කෙනෙක් තියෙනවා නම්, Spotify track එකේ ඒ නම නැත්නම් → match එක අවිශ්වාසී, ඒ නිසා ගන්නේ නෑ.
 ඒකයි `DESTELLO - HDN` වගේ එකක් වෙන artist කෙනෙක්ගේ `HDN` එකට match වෙන්නේ නැත්තේ (Spotify එකේ DESTELLO නෑ නම් → skip).
@@ -75,7 +80,7 @@ Search query එකේ **මුලින්ම එන track එක** ගන්�
 | `MONTAGEM ZEPHYR (Slowed)` | `MONTAGEM ZEPHYR` (original) | ❌ version වෙනස් |
 | `DESTELLO - HDN` | `HDN` (වෙන artist) | ❌ artist conflict |
 
-⚠️ මේක **අන්තිම step එක** — අනිත් 19ම fail වුණාට පස්සේ විතරයි දුවන්නේ. `TOPRESULT` කියලා report එකේ පේනවා නම්, ඒ line එක දෙපාරක් බලන්න (Spotify link එක open කරලා) — වැරදි නම් `data/track-overrides.json` එකෙන් හදන්න.
+⚠️ මේක **අන්තිම step එක** — අනිත් 24ම fail වුණාට පස්සේ විතරයි දුවන්නේ. `TOPRESULT` කියලා report එකේ පේනවා නම්, ඒ line එක දෙපාරක් බලන්න (Spotify link එක open කරලා) — වැරදි නම් `data/track-overrides.json` එකෙන් හදන්න.
 
 ---
 
@@ -90,6 +95,32 @@ Uploader `Artist - Song` කියලා ලියනවා, ඒත් parser �
 2. `HDN` **uploader ගේම නම** වෙන්න ඕන (`HDN🎹` / `HDN - Topic` → `HDN`)
 
 ඒ නිසා uploader වෙන කෙනෙක් නම්, හෝ Spotify එකේ ඒ නම නැත්නම් → skip එකමයි.
+
+## 2b1. අලුත් ක්‍රම 5 (skip වෙන සින්දු හොයන්න)
+
+මේවා දාන කොට පරණ ක්‍රම එකක්වත් අයින් කළේ නෑ — ඒවා හැම එකක්ම තියෙනවා, මේ 5 ඒවාට **එකතු** වුණා.
+
+* **`FIELD`** — `track:"SHAKA" artist:"Nulteex"` වගේ field search. Title එකේ වචන artist field එකට මික් වෙන්නේ නෑ.
+  (එක query එකෙන් හම්බ නොවුණොත් `track:"…"` විතරක් ආයේ try කරනවා — ඒත් artist check එක එහෙමමයි.)
+* **`VARIANTS`** — එකම query එකක් නෙවෙයි, shapes 3ක්: `artist + title + version`, `artist + title`,
+  `title + version`. ඒවායින් එකක් හරි ගැලපුණොත් add; ඔක්කොම fail නම් විතරයි ඊළඟ step එකට යන්නේ.
+* **`DURVER`** — title similarity 0.70 වගේ අඩු වුණත්, **duration ±3 seconds** ඇතුළේ + version එකම නම් ගන්නවා.
+* **`CLEANARTIST`** — `| VIRAL PHONK` වගේ tags අයින් කරලා ඉතුරු වෙන artist එකෙන් search.
+* **`TITLEONLY`** — artist කෙනෙක්වත් නැති වුණත්, duration ගැලපෙනවා + Spotify track එකේ නම **video title එක ඇතුළේ**
+  තියෙනවා නම් ගන්නවා. වෙන සින්දුවක් එක වචනයක් බෙදාගෙන ආවොත් ඒක refuse (duration ගැලපුණත්).
+
+## 2b1b. Skip වෙන සින්දුවක් අතින් add කරන්න (manual pick)
+
+Report එකේ skip වෙන හැම සින්දුවකටම (මුල් 5ට) Spotify search link එකකුයි, override key එකකුයි දෙනවා:
+
+```
+#1 SKIP: DESTELLO - HDN | VIRAL PHONK — youtu.be/aLZNbOUOyI4 · No confident artist/title/version match
+   pick: https://open.spotify.com/search/DESTELLO%20-%20HDN  →  track-overrides.json: "aLZNbOUOyI4": "<track id>"
+```
+
+1. Link එක open කරලා හරි track එක තෝරන්න → **⋯ → Share → Copy link** (`open.spotify.com/track/XXXX…`)
+2. `data/track-overrides.json` එකට `"aLZNbOUOyI4": "XXXX…"` (22 අකුරු track id) දාන්න
+3. ඊළඟ run එකේදී ඒක **search නොකර** කෙලින්ම add වෙනවා (`MANUAL` method)
 
 ## 2b2a. Label Engine වගේ double line එක
 
@@ -257,7 +288,7 @@ class MyStep(Step):
 
 ## 6. පොදු ප්‍රශ්න
 
-**Q. Steps 20ම හැම සින්දුවකටම දුවනවද?**
+**Q. Steps 25ම හැම සින්දුවකටම දුවනවද?**
 නෑ. `applies()` එකෙන් අදාළ නැති ඒවා මුලින්ම අයින් වෙනවා (උදා: `REVERSED` දුවන්නේ artist credit එකේ `x`/`,` තියෙන සින්දුවලට විතරයි).
 Match නොවුණු සින්දුවකට steps 8–11ක් විතරයි දුවන්නේ, එකකට search 1–3ක්.
 

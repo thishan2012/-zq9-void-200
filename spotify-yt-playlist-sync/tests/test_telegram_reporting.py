@@ -345,10 +345,13 @@ class SpamGuardTests(unittest.TestCase):
         numbered = [dict(issue, n=n) for n, issue in enumerate(issues, 1)]
         messages = [app.summary_message('summary', numbered)] + app.activity_messages('header', numbered)
         chunks = app.utf16_chunks('\n\n'.join(messages))
-        # Everything is present exactly once...
+        # Every song is in the per-song log exactly once (only the first few are
+        # repeated by the summary, with their manual-pick link).
         joined = '\n'.join(chunks)
-        for i in range(150):
+        for i in range(app.PICK_LINKS_PER_RUN, 150):
             self.assertEqual(joined.count(f'Item {i} '), 1)
+        for i in range(app.PICK_LINKS_PER_RUN):
+            self.assertEqual(joined.count(f'Item {i} '), 2)
         # ...and 150 songs still fit in the per-run message cap.
         self.assertLessEqual(len(chunks), app.TELEGRAM_MAX_MESSAGES)
         for chunk in chunks:

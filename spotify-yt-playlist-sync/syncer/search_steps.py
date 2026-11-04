@@ -37,9 +37,18 @@ def track_artists(track):
 
 
 def version_ok(version_text, track):
-    """Same edit only: an identical version, or one step up the slowed ladder."""
-    return (app.versions_agree(version_text, track.get('name', ''))
-            or app.upgraded_edit(version_text, track.get('name', '')))
+    """Same edit only: an identical version, or one step up the slowed ladder.
+
+    Spotify often keeps the version on the *album* ("SHAKA" on "SHAKA (Slowed)"),
+    so the album is the fallback evidence when the track name says nothing.
+    """
+    name = track.get('name', '')
+    if app.versions_agree(version_text, name) or app.upgraded_edit(version_text, name):
+        return True
+    album = track.get('album')
+    if isinstance(album, str) and album:
+        return app.versions_agree(version_text, album) or app.upgraded_edit(version_text, album)
+    return False
 
 
 def track_versions(tokens):
@@ -91,11 +100,14 @@ def conflict(step, track):
     Spotify sometimes ships an artist slot with no name (or None), and that slot
     must not make a correct match look wrong.
     """
-    known = known_artists(step)
-    if not known and not description_artists(step):
-        # When the title carries no credit, the description may - and then it is
-        # the only artist proof there is.
-        known = description_artists(step)
+    known = known_artists(step) or description_artists(step)
+    if not known:
+        # Nothing in the title or the description: the uploader's own name is the
+        # last artist hint, which is what CHANNEL/UPLOADER search with. It must
+        # still be checked, or a track by somebody else would slip through - but
+        # a placeholder channel ("Uploader", "Music") proves nothing.
+        known = {app.normalized(name) for name in app.channel_names(step.parsed, step.video)
+                 if not app.is_generic_name(name)} - {''}
     if not known:
         return False
     return not any(shared_credit(a, b) for a in known for b in track_artists(track))
@@ -120,16 +132,7 @@ def artist_ok(step, track):
     a wrong song. When nothing is known, the step is allowed (the title may not
     carry a credit at all).
     """
-    known = known_artists(step)
-    if known and known & track_artists(track):
-        return True
-    if known:
-        # A channel-name match proves nothing: the query used that channel name.
-        return False
-    # The title carries no credit: the distributor's description may, and that
-    # is then the only artist proof there is ("Provided to YouTube by …").
-    stated = description_artists(step)
-    return not stated or bool(stated & track_artists(track))
+    return not conflict(step, track)
 
 # "(feat. Mc Ombrinho)" / "[ft. X]": a credit, not part of the song's name.
 # Case-sensitive on purpose: the \b keeps the "feat" of "featuring" from ending
@@ -251,6 +254,27 @@ class Step:
                             for item in (results or [])[:3]]})
         return results
 
+    def search_query(self, client, token, query):
+        """One search for a ready-made query (field operators, variants).
+
+        Any client that can search may be handed in, so a client without
+        search_query() (older fakes, tests) is not an error.
+        """
+        self.searches.append(('', query))
+        runner = getattr(client, 'search_query', None)
+        results = runner(query, token) if callable(runner) else []
+        results = results if isinstance(results, list) else []
+        self._keep_evidence(query, results)
+        return results
+
+    def _keep_evidence(self, query, results):
+        if self.state.get('keep_evidence'):
+            self.state.setdefault('tries', []).append({
+                'step': self.code, 'query': query,
+                'results': [(item.get('name', ''), ', '.join(a.get('name', '') or ''
+                                                              for a in item.get('artists', [])))
+                            for item in (results or [])[:3]]})
+
     def applies(self):
         return True
 
@@ -258,8 +282,33 @@ class Step:
         """Return a matching track, or None."""
         raise NotImplementedError
 
+    def song_hint(self):
+        """The song part of the *video title*, with the credit and tags cut off.
+
+        The parsed pair is usually right, but these broader steps must also work
+        when the parse is doubtful: "DESTELLO - HDN | VIRAL PHONK" -> "HDN".
+        """
+        text = app.strip_marketing(self.video.get('title') or '')
+        if not self.parsed:
+            return text
+        artist, song = self.parsed
+        words = app.normalized(text).split()
+        credit = app.normalized(artist).split()
+        if credit and len(words) > len(credit):
+            if words[:len(credit)] == credit:
+                return ' '.join(words[len(credit):])
+            if words[-len(credit):] == credit:
+                return ' '.join(words[:-len(credit)])
+        return song or text
+
+    def title_words(self):
+        return set(app.normalized(self.song_hint()).split())
+
     def version_checked(self, candidates):
-        return [track for track in candidates if version_ok(self.version_text, track)]
+        # The video *title* carries the version even when the parse put the
+        # version into the artist half ("SHAKA - Slowed" read as (SHAKA, Slowed)).
+        text = self.video.get('title') or self.version_text
+        return [track for track in candidates if version_ok(text, track)]
 
     def named(self, candidates, floor=.92):
         return [track for track in self.version_checked(candidates) if name_matches(self.version_text, track, floor)]
@@ -585,6 +634,159 @@ class BrokenCreditStep(Step):
         return one_of(keep)
 
 
+class FieldOperatorStep(Step):
+    code = 'FIELD'
+    title = 'Spotify field operators (track:SHAKA artist:Nulteex) keep the name and the artist apart'
+
+    def applies(self):
+        return bool(self.parsed)
+
+    def run(self, client, token):
+        song = self.song_hint()
+        words = (app.search_core(song) or app.normalized(song)).split()
+        if not words or len(' '.join(words)) < 3:
+            return None
+        # The version is left out of the field: Spotify's index often carries the
+        # plain title only, and the version is checked against the result anyway.
+        title_field = f'track:"{" ".join(words[:8])}"'
+        candidates = []
+        for name in app.channel_names(self.parsed, self.video)[:2]:
+            name_words = app.normalized(name).split()
+            if name_words:
+                candidates += self.search_query(
+                    client, token, f'{title_field} artist:"{" ".join(name_words[:4])}"')
+        keep = [track for track in self.version_checked(candidates)
+                if name_matches(song, track, floor=.92) and artist_ok(self, track)]
+        if not keep:
+            # The plain track:"…" query (no artist field) is the fallback: it
+            # still never beats the artist check.
+            candidates = self.search_query(client, token, title_field)
+            keep = [track for track in self.version_checked(candidates)
+                    if name_matches(song, track, floor=.92) and artist_ok(self, track)]
+        return one_of(keep)
+
+
+class QueryVariantStep(Step):
+    code = 'VARIANTS'
+    title = 'Three query shapes at once: artist+title+version, artist+title, title+version'
+
+    def applies(self):
+        return bool(self.parsed)
+
+    def run(self, client, token):
+        artist, song = self.parsed
+        clean = app.strip_marketing(song)
+        core = app.search_core(clean) or app.normalized(clean)
+        names = app.channel_names(self.parsed, self.video)[:1] or [artist]
+        queries = []
+        for name in names:
+            queries.append(f'{name} {clean}')                       # artist + title + version
+            if core and core != app.normalized(clean):
+                queries.append(f'{name} {core}')                    # artist + title
+        # title + version: the version words live in the video title, not in its core
+        version_words = ' '.join(sorted(app.version_tokens(clean)))
+        queries.append(' '.join(part for part in (clean, version_words.replace('-', ' ')) if part))
+        if core:
+            queries.append(core)
+        candidates = []
+        for query in dict.fromkeys(query for query in queries if query.strip()):
+            candidates += self.search_query(client, token, query)
+        # The query without the version may return the plain title, so the name is
+        # compared without the version words - and the version is checked on its
+        # own (a slowed video never matches the original).
+        plain = app.search_core(clean) or app.normalized(clean)
+        keep = [track for track in self.version_checked(candidates)
+                if (name_matches(song, track, floor=.90)
+                    or text_matches(plain, track_title(track), .90))
+                and artist_ok(self, track)]
+        return one_of(keep)
+
+
+class DurationVersionStep(Step):
+    code = 'DURVER'
+    title = 'A looser title is enough when the duration (±3 s) and the version both match'
+
+    TOLERANCE_MS = 3000
+    FLOOR = .70
+
+    def applies(self):
+        return bool(self.video.get('duration_ms') and self.parsed)
+
+    def run(self, client, token):
+        song = self.song_hint()
+        candidates = []
+        for name in app.channel_names(self.parsed, self.video)[:2] + ['']:
+            candidates += self.search(client, token, name, song)
+        video_ms = self.video.get('duration_ms')
+        keep = []
+        for track in candidates:
+            length = track.get('duration_ms')
+            if not isinstance(length, (int, float)) or abs(length - video_ms) > self.TOLERANCE_MS:
+                continue
+            if not app.versions_agree(self.video.get('title', ''), track.get('name', '')):
+                continue                       # a slower/faster edit is a different recording
+            if not text_matches(song, track_title(track), self.FLOOR):
+                continue                       # still the same song, only loosely spelled
+            if not artist_ok(self, track):
+                continue
+            keep.append(track)
+        return one_of(keep)
+
+
+class SuffixArtistStep(Step):
+    code = 'CLEANARTIST'
+    title = 'Clean the title first, then use the artist left over ("HDN | VIRAL PHONK" -> HDN)'
+
+    def applies(self):
+        return bool(self.parsed and app.normalized(app.strip_marketing(self.version_text))
+                    != app.normalized(self.version_text))
+
+    def run(self, client, token):
+        song = app.strip_marketing(self.version_text)
+        candidates = []
+        for name in app.channel_names(self.parsed, self.video)[:2] + ['']:
+            candidates += self.search(client, token, name, song)
+        keep = [track for track in self.version_checked(candidates)
+                if name_matches(song, track, floor=.90) and artist_ok(self, track)]
+        return one_of(keep)
+
+
+class TimedTitleStep(Step):
+    code = 'TITLEONLY'
+    title = 'Title-only search, accepted only when the duration proves it is the same recording'
+
+    TOLERANCE_MS = 3000
+
+    def applies(self):
+        return bool(self.video.get('duration_ms'))
+
+    def run(self, client, token):
+        core = app.search_core(self.song_hint()) or app.normalized(self.song_hint())
+        if len(core) < 3:
+            return None
+        candidates = self.search_query(client, token, core)
+        video_ms = self.video.get('duration_ms')
+        whole_title = set(app.normalized(self.video.get('title') or '').split())
+        keep = []
+        for track in candidates:
+            length = track.get('duration_ms')
+            if not isinstance(length, (int, float)) or abs(length - video_ms) > self.TOLERANCE_MS:
+                continue
+            if not app.versions_agree(self.video.get('title', ''), track.get('name', '')):
+                continue
+            # The track's own name must sit inside the video title: "MONTAGEM
+            # RUNE" in "MONTAGEM RUNE - WUYS x KIT". Another song that only shares
+            # a word is refused, whatever its length.
+            name_words = set(track_title(track).split())
+            if not name_words or not name_words <= whole_title:
+                continue
+            # The credited artists are not required here: this step exists for
+            # uploads whose credit is wrong or missing on both sides. The name
+            # and the length to the nearest three seconds are the evidence.
+            keep.append(track)
+        return one_of(keep)
+
+
 class TopResultStep(Step):
     code = 'TOPRESULT'
     title = 'Last resort: the first Spotify result, only when the title and version really match'
@@ -712,11 +914,16 @@ STEPS = (
     WordSetStep,             # 13
     SlowStep,                # 14
     UploaderSearchStep,      # 15
-    BrokenCreditStep,        # 16
-    AlbumAwareStep,          # 17
-    PartSuffixStep,          # 18
-    PopularRankStep,         # 19
-    TopResultStep,           # 20  (always last: the least certain step)
+    FieldOperatorStep,       # 16
+    QueryVariantStep,        # 17
+    DurationVersionStep,     # 18
+    SuffixArtistStep,        # 19
+    TimedTitleStep,          # 20
+    BrokenCreditStep,        # 21
+    AlbumAwareStep,          # 22
+    PartSuffixStep,          # 23
+    PopularRankStep,         # 24
+    TopResultStep,           # 25  (always last: the least certain step)
 )
 
 

@@ -1,5 +1,44 @@
 # Changelog
 
+## 2026-11-04 (five more ways to find a song)
+
+The existing steps are untouched; five **new** steps were inserted before the loosest ones, so the chain is
+now 25 steps and `TOPRESULT` is still last.
+
+| # | Code | What it does | Example |
+|---|---|---|---|
+| 16 | `FIELD` | Spotify field search: `track:"SHAKA" artist:"Nulteex"` (with a plain `track:` retry) | collab uploads |
+| 17 | `VARIANTS` | three query shapes at once: artist+title+version, artist+title, title+version | `SHAKA (SLOWED)` |
+| 18 | `DURVER` | a looser title is enough when the length is within ±3 s **and** the version agrees | `LOUCARA FUNK!` |
+| 19 | `CLEANARTIST` | clean the title first, then use the artist left over | `DESTELLO - HDN \| VIRAL PHONK` |
+| 20 | `TITLEONLY` | title only, accepted only when the length proves it and the track name sits inside the title | `MONTAGEM RUNE - WUYS x KIT` |
+
+### The report now hands over a manual pick
+
+Each skipped song in the full log gets a ready Spotify search link plus the exact key for
+`data/track-overrides.json`, so a song that really is missing (or spelled oddly) can be added by hand once
+and is then added directly on every later run:
+
+```
+#1 SKIP: DESTELLO - HDN | VIRAL PHONK — youtu.be/aLZNbOUOyI4 · No confident artist/title/version match
+   pick: https://open.spotify.com/search/DESTELLO%20-%20HDN%20%7C%20VIRAL%20PHONK  →  track-overrides.json: "aLZNbOUOyI4": "<track id>"
+```
+
+At most **five** links per run (`PICK_LINKS_PER_RUN`), because the message cap still has to hold.
+
+### Two bugs found while wiring these in
+
+* `artist_ok()` returned `True` for any track when the title carried no credit at all — the channel name was
+  never checked, so `CHANNEL`/`UPLOADER` could accept a different artist's track that merely shared the
+  channel name. The uploader's name is now the last artist hint and is checked like any other (placeholder
+  channels such as `Uploader` / `Music` prove nothing).
+* `version_ok()` only looked at the track name. Spotify often keeps the version on the **album**
+  (`SHAKA` on `SHAKA (Slowed)`), so that is used as a fallback. Version checking also reads the video title
+  now, so a parse that swallowed the version ("SHAKA - Slowed" → artist `SHAKA`, song `Slowed`) cannot let
+  the plain original through.
+
+`MATCHER_VERSION` is now **9**. Tests: **173**.
+
 ## 2026-11-04 (Label Engine credit lines, and null artists)
 
 A distributor like Label Engine writes the credit in **two different lines**:
