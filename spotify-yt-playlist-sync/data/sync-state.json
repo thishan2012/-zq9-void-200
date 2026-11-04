@@ -164,62 +164,43 @@
       },
       "pending": null,
       "worked": {
-        "STRICT": 159,
-        "LOOSE": 11,
-        "SUFFIX": 2,
-        "FIELD": 9,
-        "VARIANTS": 4,
-        "DURVER": 2,
-        "SONGTAG": 8,
-        "DESCTEXT": 13,
+        "STRICT": 160,
+        "LOOSE": 12,
+        "SUFFIX": 4,
+        "FIELD": 11,
+        "VARIANTS": 6,
+        "DURVER": 4,
+        "SONGTAG": 10,
+        "DESCTEXT": 17,
         "REVERSED": 17,
         "CHANNEL": 2,
         "DETAIL": 6,
         "BROKEN": 1
       },
       "ran": {
-        "CHANNEL": 10,
-        "SUFFIX": 1,
-        "DURATION": 6,
-        "ARTISTS": 4,
-        "ARTISTLESS": 4,
-        "EXACT": 4,
-        "WORDSET": 4,
-        "UPLOADER": 4,
-        "FIELD": 4,
-        "VARIANTS": 2,
-        "DURVER": 2,
-        "CLEANARTIST": 1,
-        "TITLEONLY": 2,
-        "SONGTAG": 2,
-        "DESCTEXT": 2,
-        "BROKEN": 2,
-        "ALBUM": 2,
-        "PART": 2,
-        "POPULAR": 2,
-        "TOPRESULT": 2,
+        "CHANNEL": 11,
+        "SUFFIX": 2,
+        "DURATION": 7,
+        "ARTISTS": 5,
+        "ARTISTLESS": 5,
+        "EXACT": 5,
+        "WORDSET": 5,
+        "UPLOADER": 5,
+        "FIELD": 5,
+        "VARIANTS": 3,
+        "DURVER": 3,
+        "CLEANARTIST": 2,
+        "TITLEONLY": 3,
+        "SONGTAG": 3,
+        "DESCTEXT": 3,
+        "BROKEN": 3,
+        "ALBUM": 3,
+        "PART": 3,
+        "POPULAR": 3,
+        "TOPRESULT": 3,
         "REVERSED": 6,
         "SINGLE": 6,
         "TOPIC": 2
-      },
-      "skipped": {
-        "aLZNbOUOyI4": {
-          "title": "DESTELLO - HDN | VIRAL PHONK",
-          "since": 13,
-          "at": "2026-11-04T15:20:28+00:00",
-          "channel": "HDN🎹"
-        },
-        "fmrsBXzj22Q": {
-          "title": "LOUCARA FUNK!",
-          "since": 13,
-          "at": "2026-11-04T15:28:38+00:00",
-          "channel": "Espato - Topic"
-        },
-        "dOcTxjnGZps": {
-          "title": "Private video",
-          "since": 13,
-          "at": "2026-11-04T15:31:40+00:00"
-        }
       },
       "matched": {
         "STRICT": 147,
@@ -228,8 +209,17 @@
         "MANUAL": 1,
         "LOOSE": 2,
         "DURATION": 2
+      },
+      "skipped": {
+        "aLZNbOUOyI4": {
+          "title": "DESTELLO - HDN | VIRAL PHONK",
+          "since": 14,
+          "at": "2026-11-04T16:03:35+00:00",
+          "channel": "HDN🎹",
+          "retried": 14
+        }
       }
     }
   },
-  "matcher": 13
+  "matcher": 14
 }
