@@ -125,10 +125,11 @@ class TelegramReportingTests(unittest.TestCase):
              patch.object(app, 'load_overrides', return_value={}), patch.dict('os.environ', env, clear=True), \
              patch.object(sys, 'argv', ['app', '--dry-run']):
             self.assertEqual(app.main(), 0)
-        messages = [call.args[2] for call in client.telegram.call_args_list]
-        self.assertIn('Would add: 0 | Skipped: 1 | Failed: 0', messages[0])
-        self.assertIn('SKIP: Artist - No Match', messages[0])
-        self.assertTrue(any('full log' in message for message in messages))
+        # One call carries the whole report; the fake returns a Mock (truthy).
+        report = '\n\n'.join(client.telegram_many.call_args.args[2])
+        self.assertIn('Would add: 0 | Skipped: 1 | Failed: 0', report)
+        self.assertIn('SKIP: Artist - No Match', report)
+        self.assertIn('Spotify log (DRY RUN)', report)
 
     def test_main_reports_global_fatal_before_any_song(self):
         client = Mock()
@@ -137,11 +138,11 @@ class TelegramReportingTests(unittest.TestCase):
         with patch.object(app, 'Client', return_value=client), patch.dict('os.environ', env, clear=True), \
              patch.object(sys, 'argv', ['app', '--dry-run']):
             self.assertEqual(app.main(), 1)
-        message = client.telegram.call_args.args[2]
-        self.assertIn('Failed: 1', message)
-        self.assertIn('YOUTUBE_API_KEY is missing', message)
-        self.assertNotIn('SKIP:', message)
-        self.assertNotIn('FAIL:', message)
+        report = '\n\n'.join(client.telegram_many.call_args.args[2])
+        self.assertIn('Failed: 1', report)
+        self.assertIn('YOUTUBE_API_KEY is missing', report)
+        self.assertNotIn('SKIP:', report)
+        self.assertNotIn('FAIL:', report)
 
     def test_state_io_failure_identifies_the_song(self):
         issues = []; counts = {'add': 0, 'skip': 0, 'fail': 0}
@@ -162,3 +163,117 @@ class TelegramReportingTests(unittest.TestCase):
         self.assertNotIn('parse_mode', payload)
 
 if __name__ == '__main__': unittest.main()
+
+
+class QuietSkipTests(unittest.TestCase):
+    """Songs already synced or already in the playlist are saved, not reported."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'state.json'
+        self.patch = patch.object(app, 'STATE_PATH', self.path)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def issues_for(self, videos, existing=(), state=None, dry=False):
+        issues = []
+        counts = {'add': 0, 'skip': 0, 'fail': 0}
+        app.sync(Client(existing), videos, 'playlist', 'token',
+                 state or {'version': 1, 'playlists': {}}, dry, counts, issues=issues)
+        return issues, counts
+
+    def test_already_in_playlist_is_saved_but_not_reported(self):
+        videos = [{'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song', 'channel': 'U'}]
+        issues, _ = self.issues_for(videos, existing={TRACK})
+        # The database records the mapping so it is never searched again...
+        self.assertEqual(app.load_state(self.path)['playlists']['playlist']['videos'],
+                         {'AAAAAAAAAAA': TRACK})
+        # ...but Telegram says nothing about it.
+        self.assertEqual(app.telegram_messages('summary', []), ['summary'])
+        self.assertNotIn('Good Song', '\n'.join(app.telegram_messages('summary', issues)))
+        self.assertEqual(list(app.activity_messages('log', [dict(i, n=1) for i in issues])), ['log'])
+        self.assertEqual(app.skip_breakdown(issues), {'Track already in Spotify playlist': 1})
+
+    def test_no_confident_match_is_still_reported(self):
+        videos = [{'id': 'BBBBBBBBBBB', 'title': 'Artist - No Match', 'channel': 'U'}]
+        issues, _ = self.issues_for(videos)
+        self.assertFalse(issues[0].get('quiet'))
+        text = '\n'.join(app.telegram_messages('summary', issues))
+        self.assertIn('No confident artist/title/version match', text)
+        self.assertIn('BBBBBBBBBBB', text)
+
+    def test_header_counts_quiet_skips(self):
+        videos = [
+            {'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song', 'channel': 'U'},
+            {'id': 'BBBBBBBBBBB', 'title': 'Artist - No Match', 'channel': 'U'},
+        ]
+        issues, _ = self.issues_for(videos, existing={TRACK})
+        quiet = app.skip_breakdown(issues)
+        header = f'log: {len(issues) - sum(quiet.values())} song(s) to report'
+        header += f"\nAlready present, not listed ({sum(quiet.values())}): 1 × Track already in Spotify playlist"
+        messages = app.activity_messages(header, [dict(i, n=n) for n, i in enumerate(issues, 1)])
+        self.assertIn('1 song(s) to report', messages[0])
+        self.assertIn('Already present, not listed (1)', messages[0])
+        body = '\n'.join(messages)
+        self.assertNotIn('Artist - Good Song', body)
+        self.assertIn('Artist - No Match', body)
+
+    def test_already_recorded_video_is_quiet(self):
+        state = {'version': 1, 'playlists': {'playlist': {'videos': {'AAAAAAAAAAA': TRACK}, 'pending': None}}}
+        issues, counts = self.issues_for([{'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song'}], state=state)
+        self.assertEqual(counts['skip'], 1)
+        self.assertTrue(issues[0]['quiet'])
+        self.assertEqual(app.skip_breakdown(issues), {'Already recorded in the sync database': 1})
+
+
+class SpamGuardTests(unittest.TestCase):
+    """A run must never fire a burst of messages: one report, few chunks."""
+
+    def client(self):
+        client = app.Client(0)
+        client.http.post = Mock(return_value=Mock(ok=True))
+        return client
+
+    def test_many_events_become_few_messages(self):
+        issues = []
+        for i in range(150):
+            app.report_issue(issues, 'SKIP', {'id': f'{i:011d}', 'title': f'Item {i} ' + 'x' * 40,
+                                              'channel': 'Channel'}, 'No confident artist/title/version match')
+        numbered = [dict(issue, n=n) for n, issue in enumerate(issues, 1)]
+        messages = [app.summary_message('summary', numbered)] + app.activity_messages('header', numbered)
+        chunks = app.utf16_chunks('\n\n'.join(messages))
+        # Everything is present exactly once...
+        joined = '\n'.join(chunks)
+        for i in range(150):
+            self.assertEqual(joined.count(f'Item {i} '), 1)
+        # ...and 150 songs still fit in the per-run message cap.
+        self.assertLessEqual(len(chunks), app.TELEGRAM_MAX_MESSAGES)
+        for chunk in chunks:
+            self.assertLessEqual(len(chunk.encode('utf-16-le')) // 2, 4000)
+        client = self.client()
+        self.assertTrue(client.telegram_many('token', 'chat', messages))
+        self.assertLessEqual(len(client.http.post.call_args_list), app.TELEGRAM_MAX_MESSAGES)
+
+    def test_hard_cap_adds_an_omission_notice(self):
+        client = self.client()
+        big = ['x' * 3900 for _ in range(20)]
+        self.assertTrue(client.telegram_many('token', 'chat', big, max_messages=3))
+        texts = [call.kwargs['json']['text'] for call in client.http.post.call_args_list]
+        self.assertLessEqual(len(texts), 3)
+        self.assertIn('omitted', texts[-1])
+
+    def test_no_secrets_means_no_requests(self):
+        client = self.client()
+        self.assertFalse(client.telegram_many(None, None, ['a', 'b']))
+        self.assertEqual(client.http.post.call_count, 0)
+
+    def test_delivery_failure_is_reported_to_the_caller(self):
+        client = app.Client(0)
+        client.http.post = Mock(return_value=Mock(ok=False, status_code=429))
+        self.assertFalse(client.telegram_many('token', 'chat', ['hello']))
+
+    def test_quiet_telegram_does_not_raise(self):
+        client = app.Client(0)
+        client.http.post = Mock(side_effect=app.requests.RequestException('boom'))
+        self.assertFalse(client.telegram('t', 'c', 'hi', quiet=True))

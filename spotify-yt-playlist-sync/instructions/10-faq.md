@@ -27,8 +27,12 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 **Q. 200 songs කී වෙලාවක් ගන්නවද?**
 Delay 2s + search ≈ 5–10 min. Job timeout 180 min. GitHub Actions minutes (private repo) ~8 min/run.
 
-**Q. Telegram එකට message ගොඩක් එනවා 😅**
-ඒක තමයි full log එක (ඔයා ඉල්ලපු දේ). අඩු කරන්න ඕන නම් `TELEGRAM_*` secrets අයින් කරන්න — එතකොට Actions log එකේ විතරයි.
+**Q. "Track already in Spotify playlist" කියන ඒවා Telegram එකට එන්නේ නෑ — හරිද?**
+ඔව්, ඒක හිතාමතාම. ඒ සින්දු database එකේ save වෙනවා (ආයේ search කරන්නේ නෑ), ඒත් message එකක් එවන්නේ නෑ. Header එකේ ගණන විතරයි: `Already present, not listed (125): 118 × Track already in Spotify playlist`.
+**Add නොවුණු නියම හේතු** තියෙන ඒවා (`No confident artist/title/version match`, `Unavailable…`, `FAIL`) තවම විස්තර සහිතව එනවා 👍
+
+**Q. Telegram එකට message ගොඩක් එනවා 😅 (bot ban වෙයිද?)**
+දැන් නෑ. එක run එකකට **උපරිම messages 6ක්** — හැම message එකකුත් 4000 characters දක්වා pack කරලා. 200-song playlist එකකට **3** විතරයි. `bot ban` වෙන එක නවත්තන්න තමයි මේක. ඊට වඩා ඕන නම් අන්තිම message එකේ `omitted` notice එකක් එනවා + Actions log එකේ සම්පූර්ණ විස්තර.
 
 **Q. Dry run එකේදී "WOULD ADD" පෙන්නනවා, ඒත් playlist එකේ මොකුත් නෑ**
 හරි — dry run එකේදී Spotify එකට කිසිම write එකක් නෑ, state එකත් save වෙන්නේ නෑ. `dry_run` uncheck කරලා ආයේ දුවන්න.

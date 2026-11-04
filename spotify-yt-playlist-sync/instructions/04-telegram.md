@@ -19,41 +19,39 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 - Group/Channel එකකට යවන්න ඕන නම් id එක **negative** අංකයක් (`-100…`) වෙනවා, ඒ නිසා bot එක ඒ group එකට **admin/member** කරන්න.
 - `getUpdates` එකේ `[]` පෙන්නනවා නම්: bot එකට අලුතෙන් message එකක් එවලා ආයේ try කරන්න.
 
-## 3. ඔයාට එන messages (එක run එකකට 2ක් + splits)
+## 3. ඔයාට එන messages — **උපරිම 6ක්** (spam guard)
 
-**1) Summary**
-```
-YouTube → Spotify SYNC: SUCCESS
-Added: 187 | Skipped: 12 | Failed: 1
+```text
+[1] Summary
+    YouTube → Spotify DRY RUN: SUCCESS
+    Would add: 36 | Skipped: 130 | Failed: 0
 
-SKIP: Artist - Some Song
-Channel: Uploader
-YouTube: https://www.youtube.com/watch?v=…
-Reason: Track already in Spotify playlist
-…
-```
-→ මේකේ තියෙන්නේ **SKIP + FAIL විස්තර විතරයි** (+ counts).
+    Already synced / already in the playlist (125), saved to the database:
+      • 125 × Track already in Spotify playlist
 
-**2) Full log** (ඔයා ඉල්ලපු එක 🌚)
-```
-YouTube → Spotify full log (SYNC): 200 event(s)
+    Songs that did not go in:
+      • 5 × No confident artist/title/version match
 
-#1 ADD: Artist - Song
-Channel: Uploader
-YouTube: https://www.youtube.com/watch?v=…
-Match: STRICT
-Spotify: https://open.spotify.com/track/…
-Reason: Added to Spotify
+[2..6] Per-song log (compact, 1 line per song)
+    YouTube → Spotify log (DRY RUN): 41 song(s) to report
+    Already present, not listed (125): 125 × Track already in Spotify playlist
 
-#2 SKIP: …
+    #1 SKIP: Artist - Song — youtu.be/xxxxxxxxxxx · No confident artist/title/version match
+    #131 WOULD ADD: Artist - Song — youtu.be/xxxxxxxxxxx · STRICT · open.spotify.com/track/…
 ```
 
-හැම සින්දුවකටම: index, status (`ADD` / `WOULD ADD` / `SKIP` / `FAIL`), channel, YouTube link, match method
-(`MANUAL` / `STRICT` / `LOOSE` / `DETAIL`), Spotify link (දන්නවා නම්), reason.
+| රීතිය | අගය |
+|---|---|
+| එක run එකකට messages | **උපරිම 6** (`TELEGRAM_MAX_MESSAGES`) |
+| Message එකක size | 4000 UTF-16 units (හැම message එකක්ම message boundary එකෙන් pack — සින්දුවක් මැදින් කැපෙන්නේ නෑ) |
+| 6ට වඩා ඕන නම් | අන්තිම message එකේ `… N more message(s) omitted…` — විස්තර Actions log එකේ |
+| Already synced / already in playlist | විස්තර නෑ — ගණන විතරයි |
+| No confident match / unavailable / FAIL | හැම එකක්ම, link + හේතුව සමඟ |
 
-- 4000 UTF-16 units ට වැඩි නම් message එක **line boundary එකෙන්** split වෙනවා — entry එකක් මැදින් කැපෙන්නේ නෑ
-- 200 songs ≈ messages 3–5ක් (summary එකුත් එකතුව)
-- Dry run එකේදී `WOULD ADD` කියලා එනවා
+උදා: 200-song playlist එකක dry run එකකදී **3 messages** (කලින් 14). සම්පූර්ණයෙන්ම අලුත් සින්දු 200ක් නම් **6**.
+Telegram send fail වුණොත් (no secrets / blocked / rate limit) **ඒ report එකම Actions log එකට print වෙනවා** — කිසි දෙයක් නැති වෙන්නේ නෑ.
+
+(Actions log එකේ තවම හැම සින්දුවකටම `ADD/WOULD ADD/SKIP/FAIL` line එකක් තියෙනවා — debug කරන්න ඕන නම් ඒක බලන්න.)
 
 ## 4. Secrets නැති නම්
 
