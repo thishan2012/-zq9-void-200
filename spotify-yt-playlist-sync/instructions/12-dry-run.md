@@ -83,7 +83,7 @@ INFO DRY RUN: nothing will be written to Spotify and the database will not chang
 | Playlist එකේ දැනට තියෙන tracks කියවනවා | ✅ | ✅ |
 | Spotify search | ✅ | ✅ |
 | **Batch add** | ❌ | ✅ |
-| `data/sync-state.json` වෙනස් වීම | ❌ (saved songs 0 වැඩි වෙන්නේ නෑ) | ✅ |
+| `data/sync-state.json` වෙනස් වීම | ❌ (saved songs ගණන වැඩි වෙන්නේ නෑ) | ✅ |
 | Bot commit | ❌ | ✅ |
 | Telegram summary + full log | ✅ (`WOULD ADD` කියලා) | ✅ (`ADD` කියලා) |
 | Existing tracks skip | ✅ (report වෙනවා) | ✅ |
@@ -104,7 +104,6 @@ Would add: 187 | Skipped: 12 | Failed: 1
 
 ```
 YouTube → Spotify log (DRY RUN): 36 song(s) to report
-Already present, not listed (125): 118 × Track already in Spotify playlist; 7 × Already recorded in the sync database
 
 #1 WOULD ADD: Artist - Song
 Match: STRICT
@@ -123,7 +122,7 @@ Reason: Track already in Spotify playlist
 | `WOULD ADD` + `Match: STRICT` | හොඳම case — artist+title+version හරි | මොකුත් නෑ |
 | `Match: LOOSE` / `DETAIL` | ටිකක් අඩු විශ්වාසය | Spotify link එක open කරලා සින්දුව හරිද බලන්න |
 | `SKIP: No confident … match` | හම්බුනේ නෑ | `data/track-overrides.json` එකට manual mapping |
-| `SKIP: Track already in Spotify playlist` | දැනටමත් තියෙනවා — **Telegram එකට එන්නේ නෑ**, header එකේ ගණන විතරයි | මොකුත් නෑ (හරි) |
+| *(silent)* `Track already in Spotify playlist` / `Already recorded` | දැනටමත් තියෙනවා — **skip ගණනටවත්, Telegram එකටවත් එන්නේ නෑ**, DB එකේ save විතරයි | මොකුත් නෑ (හරි) |
 | `FAIL: …` | search/add error | [07-troubleshooting](07-troubleshooting.md) |
 
 හොඳ නම් විතරයි `dry_run` ☐ uncheck කරලා live run එකක් දාන්න.

@@ -76,8 +76,8 @@ EOF
 |---|---|
 | `ADD` | Spotify එකට add වුණා ✅ |
 | `WOULD ADD` | dry run — add වෙන්නේ ඊළඟ ඇත්ත run එකේ |
-| `SKIP` | no match / unavailable / duplicate — Telegram එකට එනවා |
-| *(quiet)* | already recorded / already in Spotify → DB එකේ save විතරයි, header count එකේ පේනවා |
+| `SKIP` | no match / unavailable / same track in run — ගණනට + Telegram එකට එනවා |
+| *(silent)* | already recorded / already in Spotify / duplicate video → DB එකේ save විතරයි (ගණනටවත් නෑ) |
 | `FAIL` | search error / add error / ambiguous write |
 
 ## Match methods

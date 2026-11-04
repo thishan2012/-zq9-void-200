@@ -97,7 +97,7 @@ class DetailMatchingTests(unittest.TestCase):
             app.sync(client, [video, video], 'playlist', 'token', state, False, counts)
             saved = app.load_state(app.STATE_PATH)
         self.assertEqual(client.added, ['track1'])
-        self.assertEqual(counts, {'add': 1, 'skip': 1, 'fail': 0})
+        self.assertEqual(counts, {'add': 1, 'skip': 0, 'fail': 0})
         self.assertEqual(saved['playlists']['playlist']['videos'], {'video1': 'track1'})
 
     def test_existing_methods_do_not_run_third_method(self):

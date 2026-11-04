@@ -194,7 +194,7 @@ class Tests(unittest.TestCase):
             counts = self.run_sync(client, [video, video], state)
         self.assertEqual(client.queries, [('Artist', 'Shadowss (Official Video)'), ('', video['title'])])
         self.assertEqual(client.added, ['target'])
-        self.assertEqual(counts, {'add': 1, 'skip': 1, 'fail': 0})
+        self.assertEqual(counts, {'add': 1, 'skip': 0, 'fail': 0})
         self.assertTrue(any('LOOSE MATCH' in line for line in logs.output))
         self.assertEqual(app.load_state(self.path)['playlists']['playlist']['videos']['v2'], 'target')
 
@@ -228,17 +228,19 @@ class Tests(unittest.TestCase):
     def test_add_once_and_persist(self):
         state = {'version': 1, 'playlists': {}}
         client = FakeClient()
-        self.assertEqual(self.run_sync(client, [VIDEO, VIDEO], state), {'add': 1, 'skip': 1, 'fail': 0})
+        self.assertEqual(self.run_sync(client, [VIDEO, VIDEO], state), {'add': 1, 'skip': 0, 'fail': 0})
         self.assertEqual(client.added, ['t1'])
         self.assertEqual(app.load_state(self.path)['playlists']['playlist']['videos'], {'v1': 't1'})
     def test_existing_and_dry_run(self):
         state = {'version': 1, 'playlists': {}}
         client = FakeClient(['t1'])
-        self.assertEqual(self.run_sync(client, [VIDEO], state)['skip'], 1)
+        # Already in the playlist: saved to the database, not counted as a skip.
+        self.assertEqual(self.run_sync(client, [VIDEO], state)['skip'], 0)
+        self.assertEqual(app.load_state(self.path)['playlists']['playlist']['videos'], {'v1': 't1'})
         self.assertEqual(client.added, [])
         self.path.unlink()
         state = {'version': 1, 'playlists': {}}
-        self.assertEqual(self.run_sync(FakeClient(), [VIDEO, VIDEO], state, True), {'add': 1, 'skip': 1, 'fail': 0})
+        self.assertEqual(self.run_sync(FakeClient(), [VIDEO, VIDEO], state, True), {'add': 1, 'skip': 0, 'fail': 0})
         self.assertFalse(self.path.exists())
     def test_uncertain_write_and_reconciliation(self):
         class Uncertain(FakeClient):

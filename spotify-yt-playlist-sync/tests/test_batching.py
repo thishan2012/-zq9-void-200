@@ -77,17 +77,18 @@ class BatchingTests(unittest.TestCase):
         existing = {f'track{i:017d}' for i in range(10)}
         client = BatchClient(existing)
         counts, issues = self.run_sync(client, [video(i) for i in range(15)])
-        self.assertEqual(counts, {'add': 5, 'skip': 10, 'fail': 0})
+        # Already-present tracks are silent: they are not counted as skips.
+        self.assertEqual(counts, {'add': 5, 'skip': 0, 'fail': 0})
         self.assertEqual([batch for batch in client.batches], [[f'track{i:017d}' for i in range(10, 15)]])
-        self.assertTrue(all(issue['reason'] == 'Track already in Spotify playlist'
-                            for issue in issues if issue['status'] == 'SKIP'))
+        # Only the five real additions are reported; already-present tracks are silent.
+        self.assertEqual([issue['status'] for issue in issues], ['ADD'] * 5)
 
     def test_second_run_adds_nothing(self):
         videos = [video(i) for i in range(120)]
         self.run_sync(BatchClient(), videos)
         client = BatchClient()
         counts, _ = self.run_sync(client, videos)
-        self.assertEqual(counts, {'add': 0, 'skip': 120, 'fail': 0})
+        self.assertEqual(counts, {'add': 0, 'skip': 0, 'fail': 0})
         self.assertEqual(client.searches, 0)
         self.assertEqual(client.batches, [])
 
@@ -117,7 +118,7 @@ class BatchingTests(unittest.TestCase):
         client = BatchClient({f'track{i:017d}' for i in range(3)})
         counts = {'add': 0, 'skip': 0, 'fail': 0}
         app.sync(client, [video(0), video(3)], 'playlist', 'token', state, False, counts)
-        self.assertEqual(counts, {'add': 1, 'skip': 1, 'fail': 0})
+        self.assertEqual(counts, {'add': 1, 'skip': 0, 'fail': 0})
         saved = app.load_state(self.path)['playlists']['playlist']
         self.assertEqual(sorted(saved['videos']), [video(i)['id'] for i in range(4)])
         self.assertIsNone(saved['pending'])

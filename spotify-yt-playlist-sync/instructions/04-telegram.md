@@ -26,15 +26,12 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
     YouTube → Spotify DRY RUN: SUCCESS
     Would add: 36 | Skipped: 130 | Failed: 0
 
-    Already synced, in the playlist, or duplicated (125) — saved to the database, not listed:
-      • 125 × Track already in Spotify playlist
 
     Songs that need a look:
       • 5 × No confident artist/title/version match
 
 [2..6] Per-song log (compact, 1 line per song)
-    YouTube → Spotify log (DRY RUN): 41 song(s) to report
-    Already present, not listed (125): 125 × Track already in Spotify playlist
+    YouTube → Spotify log (DRY RUN): 36 song(s) to report
 
     #1 SKIP: Artist - Song — youtu.be/xxxxxxxxxxx · No confident artist/title/version match
     #131 WOULD ADD: Artist - Song — youtu.be/xxxxxxxxxxx · STRICT · open.spotify.com/track/…
@@ -45,10 +42,12 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 | එක run එකකට messages | **උපරිම 6** (`TELEGRAM_MAX_MESSAGES`) |
 | Message එකක size | 4000 UTF-16 units (හැම message එකක්ම message boundary එකෙන් pack — සින්දුවක් මැදින් කැපෙන්නේ නෑ) |
 | 6ට වඩා ඕන නම් | අන්තිම message එකේ `… N more message(s) omitted…` — විස්තර Actions log එකේ |
-| Already synced / already in playlist | විස්තර නෑ — ගණන විතරයි |
-| No confident match / unavailable / FAIL | හැම එකක්ම, link + හේතුව සමඟ |
+| Already synced / already in playlist / duplicate video | **skip ගොඩටවත්, log එකටවත් නෑ** — DB එකේ save විතරයි (ගණනෙත් නෑ) |
+| No confident match / unavailable / same-track-in-run / FAIL | හැම එකක්ම, link + හේතුව සමඟ |
 
-උදා: 200-song playlist එකක dry run එකකදී **3 messages** (කලින් 14). සම්පූර්ණයෙන්ම අලුත් සින්දු 200ක් නම් **6**.
+උදා: 200-song playlist එකක dry run එකකදී **2–3 messages** (කලින් 14). සම්පූර්ණයෙන්ම අලුත් සින්දු 200ක් නම් **6**.
+
+`Skipped: N` කියන්නේ **ඇත්තටම හේතුවක් නිසා** skip වුණු ගණන විතරයි (already added ඒවා ගණනට එන්නේ නෑ).
 Telegram send fail වුණොත් (no secrets / blocked / rate limit) **ඒ report එකම Actions log එකට print වෙනවා** — කිසි දෙයක් නැති වෙන්නේ නෑ.
 
 (Actions log එකේ තවම හැම සින්දුවකටම `ADD/WOULD ADD/SKIP/FAIL` line එකක් තියෙනවා — debug කරන්න ඕන නම් ඒක බලන්න.)
