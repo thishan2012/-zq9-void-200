@@ -449,6 +449,39 @@ class UploaderSearchStep(Step):
         return one_of(keep)
 
 
+class BrokenCreditStep(Step):
+    code = 'BROKEN'
+    title = 'Dash halves the other way round ("DESTELLO - HDN": the real artist is on the left)'
+
+    def applies(self):
+        return bool(self.parsed and self.video.get('channel'))
+
+    def run(self, client, token):
+        """Search the two halves of a "A - B" title the other way round.
+
+        Uploaders are inconsistent: the same channel writes "Song - Artist" one
+        day and "Artist - Song" the next. When the title was read as
+        (artist, song) but the song half really is the artist credit - it is a
+        bare name that Spotify credits, and the uploader signs it too - the
+        title has to be searched as "B A" instead of "A B".
+        """
+        first, second = self.parsed
+        if len(app.normalized(second).split()) > 3:
+            return None      # a real song title, not a swapped credit
+        uploader = {app.normalized(name) for name in app.channel_names(None, self.video)}
+        candidates = []
+        for name in app.artist_candidates(second) or [second]:
+            candidates += self.search(client, token, name, first)
+        keep = [track for track in self.version_checked(candidates)
+                if name_matches(first, track, floor=.92)
+                and version_ok(first, track)
+                # The right-hand half must be the artist Spotify credits, and it
+                # must be the uploader's own name: "HDN - Topic" uploaded by HDN.
+                and app.normalized(second) in track_artists(track)
+                and bool(uploader & track_artists(track))]
+        return one_of(keep)
+
+
 class TopResultStep(Step):
     code = 'TOPRESULT'
     title = 'Last resort: the first Spotify result, only when the title and version really match'
@@ -577,10 +610,11 @@ STEPS = (
     WordSetStep,             # 13
     SlowStep,                # 14
     UploaderSearchStep,      # 15
-    AlbumAwareStep,          # 16
-    PartSuffixStep,          # 17
-    PopularRankStep,         # 18
-    TopResultStep,           # 19  (always last: the least certain step)
+    BrokenCreditStep,        # 16
+    AlbumAwareStep,          # 17
+    PartSuffixStep,          # 18
+    PopularRankStep,         # 19
+    TopResultStep,           # 20  (always last: the least certain step)
 )
 
 

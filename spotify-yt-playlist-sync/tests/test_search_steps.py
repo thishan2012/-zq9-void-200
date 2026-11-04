@@ -182,6 +182,47 @@ class WordSetStepTests(StepTestCase):
         self.assertEqual(found['id'], 't1')
 
 
+class BrokenCreditStepTests(StepTestCase):
+    """A "Song - Artist" title whose halves are written the other way round."""
+
+    def test_the_swap_is_matched_when_the_uploader_is_that_artist(self):
+        video_item = video('DESTELLO - HDN', channel='HDN🎹')
+        catalog = Catalog([track('t1', 'DESTELLO', 'HDN')])
+        found, _ = self.run_step(search_steps.BrokenCreditStep, video_item, catalog)
+        self.assertEqual(found['id'], 't1')
+
+    def test_a_different_artist_is_still_refused(self):
+        video_item = video('DESTELLO - HDN', channel='Some Uploader')
+        catalog = Catalog([track('t1', 'DESTELLO', 'HDN')])
+        found, _ = self.run_step(search_steps.BrokenCreditStep, video_item, catalog)
+        self.assertIsNone(found)
+
+    def test_a_real_song_title_is_not_swapped(self):
+        video_item = video('DJ X - MONTAGEM DA NOITE INTEIRA', channel='DJ X')
+        catalog = Catalog([track('t1', 'MONTAGEM DA NOITE INTEIRA', 'DJ X')])
+        found, _ = self.run_step(search_steps.BrokenCreditStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
+class UploaderNameTests(unittest.TestCase):
+    """An uploader decoration must not hide the artist name."""
+
+    def test_a_glyph_in_the_channel_name_is_not_part_of_it(self):
+        names = app.channel_names(('DESTELLO', 'HDN | VIRAL PHONK'), {'channel': 'HDN🎹'})
+        self.assertEqual(names, ['DESTELLO', 'HDN'])
+
+    def test_an_upload_suffix_and_a_topic_channel_are_stripped(self):
+        self.assertEqual(app.channel_names(None, {'channel': 'HDN Music'}), ['HDN'])
+        self.assertEqual(app.channel_names(None, {'channel': 'Raiden - Topic'}), ['Raiden'])
+
+    def test_a_name_with_nothing_left_is_not_a_search_term(self):
+        self.assertEqual(app.channel_names(None, {'channel': '★☆'}), [])
+
+    def test_a_pasted_filename_dot_is_not_an_artist_name(self):
+        self.assertEqual(app.artist_candidates('Signals.'), ['Signals'])
+        self.assertEqual(app.artist_candidates('Mr.Kitty'), ['Mr.Kitty'])
+
+
 class AlbumAwareStepTests(StepTestCase):
     def test_the_slowed_edit_living_on_a_slowed_album_wins(self):
         video_item = video('MONTAGEM ZEPHYR (Slowed)')
@@ -360,7 +401,7 @@ class StepChainTests(unittest.TestCase):
     def test_every_step_has_a_unique_code_and_a_title(self):
         codes = [step.code for step in search_steps.STEPS]
         self.assertEqual(len(codes), len(set(codes)))
-        self.assertGreaterEqual(len(codes), 19)
+        self.assertGreaterEqual(len(codes), 20)
         for step in search_steps.STEPS:
             self.assertTrue(step.title, step.code)
 

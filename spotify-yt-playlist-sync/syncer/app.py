@@ -24,7 +24,7 @@ BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
-MATCHER_VERSION = 4  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 5  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -508,6 +508,8 @@ MARKETING_WORDS = {
 }
 # Upload labels only. Version words (slowed, reverb, sped up …) are NOT tags: a
 # "(Slowed + Reverb)" bracket names a different recording and must be kept.
+# Words an uploader adds to its own name: "HDN Music", "HDN Official".
+UPLOAD_SUFFIX_WORDS = {'music', 'official', 'records', 'label', 'channel', 'topic', 'tv'}
 TAG_WORDS = {'official', 'video', 'audio', 'lyric', 'lyrics', 'visualizer', 'visualiser',
              'music', 'phonk', 'funk', 'tropical', 'viral', 'tiktok', 'trending',
              'phonksongs', 'hd', 'hq', '4k'}
@@ -546,6 +548,18 @@ def strip_marketing(title):
             text = match.group(1).strip()
     return drop_tags(text)
 
+def is_domain_like(text):
+    """True when a dot is really part of a name ("A.R.T.", "Mr.Kitty", "kud.ai").
+
+    Two letters on either side are treated as a file extension ("Signals.yt"),
+    not as a name, so a plain word never counts as a domain.
+    """
+    for left, right in re.findall(r'(\w)\.(\w)', text):
+        if not (len(left) <= 2 and len(right) <= 2):
+            return True
+    return False
+
+
 def artist_candidates(credit):
     """Split an artist credit into individual names.
 
@@ -554,7 +568,11 @@ def artist_candidates(credit):
     """
     names = []
     for part in COLLAB_SEPARATOR.split(credit or ''):
-        part = part.strip(' .')
+        part = part.strip(' ,.')
+        if part.endswith('.') and not is_domain_like(part):
+            # "Mr.Kitty ." / "Signals.yt" pasted from a filename: the dot is not
+            # part of the artist name.
+            part = part.rstrip(' .')
         if part and normalized(part) and normalized(part) not in {'x', 'ft', 'feat'}:
             names.append(part)
     return names
@@ -657,6 +675,10 @@ def channel_names(parsed, video):
     topic = re.fullmatch(r'(.+?)\s*-\s*Topic', video.get('channel', ''), flags=re.I)
     if topic:
         names.append(topic.group(1).strip())
+    # An uploader often signs the name with a glyph: "HDN🎹", "HDN Music". The
+    # search term must be the plain form, "HDN" - the decorated name is not a
+    # name Spotify knows.
+    names = [plain_name(name) or name for name in names]
     seen, ordered = set(), []
     for name in names:
         key = normalized(name)
@@ -664,6 +686,23 @@ def channel_names(parsed, video):
             seen.add(key)
             ordered.append(name.strip())
     return ordered
+
+def plain_name(name):
+    """The bare word of an uploader name: "HDN🎹" -> "HDN", "Espato." -> "Espato".
+
+    Decoration (emoji, ♪, ★) and the upload suffix ("HDN Music", "HDN - Topic")
+    are dropped. A name that has nothing left is not used as a search term.
+    """
+    text = unicodedata.normalize('NFKC', name or '')
+    text = re.sub(r'\s*-\s*topic$', '', text, flags=re.I)
+    text = ''.join(ch for ch in text if ch.isalnum() or ch.isspace() or ch in ".'-&")
+    text = ' '.join(text.split()).strip(" .'-&")
+    tail = normalized(text).split()
+    while len(tail) > 1 and tail[-1] in UPLOAD_SUFFIX_WORDS:
+        tail.pop()
+    if len(tail) < len(normalized(text).split()):
+        text = re.sub(r'\s+\S+$', '', text) if len(normalized(text).split()) - len(tail) == 1 else text
+    return text.strip(" .'-&")
 
 def with_featured(artist, title):
     """Move a "(feat. X)" credit from the title to the artist string."""

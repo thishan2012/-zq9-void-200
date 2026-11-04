@@ -1,8 +1,34 @@
 # Changelog
 
+## 2026-11-04 (BROKEN + the run that went red)
+
+### Step 20: `BROKEN` - a title whose dash halves are swapped
+
+`DESTELLO - HDN | VIRAL PHONK` was read as artist `DESTELLO`, song `HDN`, but the upload was the other way
+round (`HDN` is the artist, `DESTELLO` is the song). `BROKEN` searches it swapped - and only accepts when
+the swapped half is an artist Spotify credits **and** the uploader's own name, so it cannot invent a match.
+
+### The uploader's decoration is no longer part of the artist name
+
+`HDN🎹`, `HDN Music`, `Raiden - Topic` are searched as `HDN`, `Raiden`; a pasted filename dot (`Signals.`)
+is not treated as a domain, so the name stays `Signals`. A channel name with nothing left (`★☆`) is not used
+as a search term. This was silently changing every query the `CHANNEL`/`TOPIC` steps made.
+
+### The red ✗ after a good run was the database push
+
+Run #6 added/reported everything, then failed in **Save sync database** - the last step - because `main`
+had moved during the 14-minute run, so `git push` was rejected. Consequences: the run is marked failed, and
+the bookkeeping (which drives `MATCHER_VERSION` retries) never lands. Now the step rebases the one-file
+commit first, and a rejected push is a `::warning::` instead of a job failure - the sync itself already
+finished.
+
+`MATCHER_VERSION` is now **5**. Tests: **139**. Report note: `Matched by extra step:` only lists the extra
+steps, so a run where every song matched with `STRICT`/`LOOSE` shows nothing there - the per-song line
+carries `· STRICT ·` / `· LOOSE ·` either way.
+
 ## 2026-11-04 (ALBUM / PART / POPULAR + `--explain`)
 
-### Three more steps (19 in total) - for the songs that Spotify *does* have
+### Three more steps (then 19 in total) - for the songs that Spotify *does* have
 
 Run #5 skipped 7 songs; 6 of them are on Spotify, our checks simply refused every search result:
 
