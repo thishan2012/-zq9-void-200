@@ -24,6 +24,8 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 **Q. දවසට කී පාරක් දුවනවද?**
 `0 */4 * * *` = **දවසට 6** (හැම 4 පැයකට). Public repo නිසා minutes limit නෑ. Scheduled runs dry run — ඇත්තට ඕන නම් `SYNC_ENABLED=true`.
 
+**60-day disable:** public repo එකක commit/PR වගේ **activity නැතුව දවස් 60ක්** ගියොත් GitHub schedule එක *"This scheduled workflow is disabled because there hasn't been activity in this repository"* කියලා **auto-disable** කරනවා (Actions tab එකේ **Enable workflow** button එකකුත් එනවා). අපේ repo එකේ අලුත් සින්දු නැති මාසෙක DB commit එකක් එන්නෙ නෑ — ඒ නිසා හැම මාසෙම **1 වෙනිදා** එන run එක `Keep the schedule alive (monthly heartbeat)` empty commit එකක් දාලා clock එක reset කරනවා. ඒක නැති වුණොත් (~මාස 2ක් repo එක නිශ්ශබ්ද නම්) **Enable workflow** එබන්න වෙනවා.
+
 **Q. 200 songs කී වෙලාවක් ගන්නවද?**
 Delay 2s + search ≈ 5–10 min. Job timeout 180 min. GitHub Actions minutes (private repo) ~8 min/run.
 

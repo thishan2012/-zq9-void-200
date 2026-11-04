@@ -83,6 +83,10 @@ spotify:playlist:26ADR9K06DZ826IsgTno1S
 3. Schedule is `0 */4 * * *` — **six runs a day**, every 4 hours (00/04/08/12/16/20 UTC =
    05:30/09:30/13:30/17:30/21:30/01:30 Sri Lanka). GitHub cron is UTC only and can be delayed.
    Runs with no new songs are quick because already-saved videos are skipped without a search.
+   GitHub disables schedules in a public repository after **60 days without activity**, and a month
+   with nothing new to sync is exactly the normal case here - so the first real run of each month
+   leaves a one-line empty commit (`Keep the schedule alive (monthly heartbeat)`) to reset that
+   clock. A run that does change the database already counts as activity.
 4. Manual run: **Actions → YouTube to Spotify sync → Run workflow**, keep **dry_run** checked the first
    time (it is the default), then uncheck it for the real sync. Full detail:
    [instructions/12-dry-run.md](instructions/12-dry-run.md).
