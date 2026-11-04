@@ -7,22 +7,33 @@
       "skipped": {
         "aLZNbOUOyI4": {
           "title": "DESTELLO - HDN | VIRAL PHONK",
-          "since": 11,
+          "since": 13,
+          "at": "2026-11-04T13:07:14+00:00",
           "channel": "HDN🎹",
-          "retried": 11
+          "retried": 13
         },
         "fmrsBXzj22Q": {
           "title": "LOUCARA FUNK!",
-          "since": 11,
+          "since": 13,
+          "at": "2026-11-04T13:15:08+00:00",
           "channel": "Espato - Topic",
-          "retried": 11
+          "retried": 13
         },
         "dOcTxjnGZps": {
           "title": "Private video",
-          "since": 11
+          "since": 13,
+          "at": "2026-11-04T13:17:58+00:00"
         }
+      },
+      "matched": {
+        "STRICT": 146,
+        "CHANNEL": 4,
+        "LOOSE": 3,
+        "FIELD": 2,
+        "MANUAL": 1,
+        "DURATION": 2
       }
     }
   },
-  "matcher": 11
+  "matcher": 13
 }
