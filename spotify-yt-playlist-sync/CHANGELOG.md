@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-04 (`--reset-db`: the emergency switch)
+
+A way to throw the bookkeeping away without touching the playlist:
+
+* **`--reset-db history|playlist|all`** - `history` drops only the statistics (`matched` / `worked` / `ran`)
+  and the matcher stamp, `playlist` drops one playlist's record, `all` empties the database.
+* **Spotify is never touched**: a reset only forgets what the sync already did, so the next run searches the
+  whole playlist again and re-adds what is missing.
+* **`--yes` is required** to apply it; without it the command prints exactly what it would drop and changes
+  nothing. A copy is kept as `data/sync-state.json.bak` (`--no-backup` to skip it).
+* In the Actions tab the same thing is a `reset_db` choice input on **Run workflow**; it runs before the sync
+  (so one run rebuilds the database) and stays a preview while the dry-run box is ticked.
+
+Tests: **241**.
+
 ## 2026-11-04 (summary fixes after the first live run)
 
 The first real run added 158 tracks. Its summary then raised three fair questions, all of them display or

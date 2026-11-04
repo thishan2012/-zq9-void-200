@@ -1,4 +1,6 @@
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -389,6 +391,82 @@ class RememberedTests(unittest.TestCase):
         self.assertEqual(entry['channel'], 'U')
         self.assertEqual(entry['since'], app.MATCHER_VERSION)
         self.assertTrue(entry['at'].endswith('+00:00'))
+
+
+class ResetDatabaseTests(unittest.TestCase):
+    """The emergency switch: forget the database, never touch Spotify."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / 'sync-state.json'
+        self.patch = patch.object(app, 'STATE_PATH', self.path)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+        self.addCleanup(self.tmp.cleanup)
+        app.save_state(self.path, {
+            'version': 1, 'matcher': app.MATCHER_VERSION,
+            'playlists': {
+                'PLAAAAAAAAAAAAAAAAAAAA': {
+                    'videos': {'aaaaaaaaaaa': 'T' * 22, 'bbbbbbbbbbb': 'U' * 22},
+                    'skipped': {'ccccccccccc': {'title': 'Gone', 'since': 3, 'at': '2026-01-01T00:00:00+00:00'}},
+                    'pending': None, 'matched': {'STRICT': 2}, 'worked': {'STRICT': 3}, 'ran': {'STRICT': 3}},
+                'PLBBBBBBBBBBBBBBBBBBBB': {
+                    'videos': {'ddddddddddd': 'V' * 22}, 'pending': None, 'matched': {'LOOSE': 1}},
+            }})
+        self.original = self.path.read_text(encoding='utf-8')
+
+    def test_nothing_changes_without_yes(self):
+        with patch('sys.stdout', new_callable=io.StringIO) as out:
+            self.assertEqual(app.reset_database('all', None, dry_run=True), 0)
+        self.assertIn('Dry run', out.getvalue())
+        self.assertEqual(self.path.read_text(encoding='utf-8'), self.original)
+
+    def test_all_empties_the_database_but_keeps_a_backup(self):
+        with patch('sys.stdout', new_callable=io.StringIO) as out:
+            app.reset_database('all', None, dry_run=False)
+        self.assertEqual(json.loads(self.path.read_text(encoding='utf-8')),
+                         {'version': 1, 'playlists': {}})
+        backup = self.path.with_name(self.path.name + '.bak')
+        self.assertTrue(backup.exists())
+        self.assertEqual(backup.read_text(encoding='utf-8'), self.original)
+        self.assertIn('saved songs forgotten:  3', out.getvalue())
+        self.assertIn('untouched', out.getvalue())
+
+    def test_one_playlist_leaves_the_other_alone(self):
+        with patch('sys.stdout', new_callable=io.StringIO):
+            app.reset_database('playlist', 'PLAAAAAAAAAAAAAAAAAAAA', dry_run=False)
+        playlists = json.loads(self.path.read_text(encoding='utf-8'))['playlists']
+        self.assertEqual(list(playlists), ['PLBBBBBBBBBBBBBBBBBBBB'])
+        self.assertEqual(playlists['PLBBBBBBBBBBBBBBBBBBBB']['videos'], {'ddddddddddd': 'V' * 22})
+
+    def test_history_keeps_the_duplicate_guard(self):
+        with patch('sys.stdout', new_callable=io.StringIO):
+            app.reset_database('history', None, dry_run=False)
+        saved = json.loads(self.path.read_text(encoding='utf-8'))
+        db = saved['playlists']['PLAAAAAAAAAAAAAAAAAAAA']
+        self.assertEqual(len(db['videos']), 2)
+        self.assertIn('ccccccccccc', db['skipped'])
+        for key in ('matched', 'worked', 'ran', 'runs'):
+            self.assertNotIn(key, db)
+        self.assertNotIn('matcher', saved)
+
+    def test_an_already_empty_database_says_so(self):
+        with patch('sys.stdout', new_callable=io.StringIO) as out:
+            app.reset_database('all', None, dry_run=False)
+            self.assertEqual(app.reset_database('all', None, dry_run=False), 0)
+        self.assertIn('Nothing to reset', out.getvalue())
+
+    def test_the_backup_is_optional(self):
+        with patch('sys.stdout', new_callable=io.StringIO):
+            app.reset_database('all', None, dry_run=False, backup=False)
+        self.assertFalse(self.path.with_name(self.path.name + '.bak').exists())
+
+    def test_the_playlist_argument_is_validated_on_the_command_line(self):
+        with patch('sys.stdout', new_callable=io.StringIO):
+            with patch.object(sys, 'argv', ['app', '--reset-db', 'playlist']):
+                self.assertEqual(app.main(), 2)
+            with patch.object(sys, 'argv', ['app', '--reset-db', 'playlist', '--playlist', 'nope']):
+                self.assertEqual(app.main(), 2)
 
 
 if __name__ == '__main__':

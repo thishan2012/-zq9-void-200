@@ -140,7 +140,8 @@ export YOUTUBE_API_KEY='…'
 .venv/bin/python -m syncer.app --stats       # which step found how many songs (history)
 .venv/bin/python -m syncer.app --forget-video aLZNbOUOyI4   # search that skipped song again
 .venv/bin/python -m syncer.app --forget-skipped             # search every remembered skip again
-.venv/bin/python -m unittest discover -s tests -v   # 224 tests
+.venv/bin/python -m syncer.app --reset-db all                # EMERGENCY: preview emptying the database
+.venv/bin/python -m unittest discover -s tests -v   # 241 tests
 ```
 
 `--explain` searches every remembered skip once more and prints, per song, what `STRICT`/`LOOSE` and each
@@ -157,6 +158,32 @@ Spotify, a private video turned public, or a rule was fixed. The entry is remove
 cache without a new request), the steps that search but never win (candidates for removal) and the steps
 whose condition never applied (leave those alone). The numbers are the whole history, so they keep growing
 across runs while `saved` shows the playlist's actual size. The same table is appended to the Actions job summary.
+
+### 🚨 Emergency: reset the database
+
+When the bookkeeping itself is the problem (a half-finished run, a database that looks wrong, a playlist
+you want rebuilt from scratch), `--reset-db` is the switch - and it is built so it cannot hurt the playlist:
+
+```bash
+python -m syncer.app --reset-db all                 # report what would be forgotten (no change)
+python -m syncer.app --reset-db all --yes           # really empty the database
+python -m syncer.app --reset-db playlist --playlist <SPOTIFY_PLAYLIST_ID> --yes
+python -m syncer.app --reset-db history --yes       # statistics only, duplicate guard kept
+```
+
+| Scope | What is dropped | What stays |
+|---|---|---|
+| `history` | `matched` / `worked` / `ran` / `runs` counters and the matcher stamp | every remembered video and skip - nothing is re-searched |
+| `playlist` | one playlist's whole record (needs `--playlist`) | the other playlists |
+| `all` | everything: remembered videos, skips, statistics | the Spotify playlist itself |
+
+* **Spotify is never touched** - a reset only forgets what the sync already did. The next run therefore
+  searches the whole playlist again and re-adds whatever is missing (Spotify de-duplicates the rest).
+* It is a **dry run unless you pass `--yes`**, and it prints exactly what it will drop first.
+* A copy is kept as `data/sync-state.json.bak` (skip with `--no-backup`).
+* In the Actions tab: **Run workflow** → *Emergency: reset the sync database* (`history` / `playlist` / `all`).
+  It runs **before** the sync, so the same run rebuilds the database. With the dry-run box ticked it only
+  previews the reset.
 
 **The weekly run does this by itself.** Besides the six 4-hourly runs, the schedule has one weekly entry
 (`0 3 * * 0`, Sunday 03:00 UTC) that also retries every skip older than `RETRY_AFTER_DAYS` (7). A track that
@@ -207,7 +234,7 @@ syncer/app.py                all logic (YouTube, Spotify transport, matching, ba
 data/sync-state.json         database: per playlist {videos, pending}
 data/track-overrides.json    manual YouTube → Spotify mappings
 instructions/00…11-*.md      A–Z guides (start at instructions/README.md)
-tests/                       224 unit tests (matching, transport, batching, rate limits, reporting)
+tests/                       241 unit tests (matching, transport, batching, rate limits, reporting)
 cookies/README.md            why the cookie file is not in Git
 ```
 

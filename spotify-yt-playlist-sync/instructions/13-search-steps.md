@@ -246,6 +246,28 @@ Description එකේ **`ISRC: BRABC2401234`** වගේ එකක් තිබ�
 * Candidates වල ISRC **හිස්** නම් ඊළඟ query එකට යනවා — එකම query එකේ request වියදම් නොකර.
 * `ISRC:` **නැති** descriptions වලට මේක දුවන්නේ නෑ; අනිත් steps එහෙමම.
 
+## 2b6. 🚨 `--reset-db` — හදිසි අවස්ථාවේ database එක
+
+Database එකේ bookkeeping එකේම ප්‍රශ්නයක් තිබ්බොත් (run එකක් අතරමගදී නැවතුණා, playlist එක මුල ඉඳන් rebuild කරන්න ඕන, numbers වැරදි) — මේක තමයි switch එක:
+
+```bash
+python -m syncer.app --reset-db all                          # මොනවද යන්නේ කියලා පෙන්නනවා (වෙනසක් නෑ)
+python -m syncer.app --reset-db all --yes                    # ඇත්තටම කරනවා
+python -m syncer.app --reset-db playlist --playlist <ID> --yes
+python -m syncer.app --reset-db history --yes                # statistics විතරයි, duplicate guard එක තියෙනවා
+```
+
+| Scope | යන දේ | ඉතුරු වෙන දේ |
+|---|---|---|
+| `history` | `matched` / `worked` / `ran` / `runs` + matcher stamp | මතක තියෙන videos / skips — කිසිවක් ආයේ search වෙන්නේ නෑ |
+| `playlist` | එක playlist එකක record එක (`--playlist` ඕන) | අනිත් playlists |
+| `all` | ඔක්කොම (videos, skips, statistics) | **Spotify playlist එක** |
+
+* **Spotify එකට කිසිම වෙනසක් නෑ** — reset එකෙන් වෙන්නේ sync එක කරපු දේ **අමතක වෙන එක** විතරයි. ඒ නිසා ඊළඟ run එකේදී මුළු playlist එකම ආයේ search වෙලා, නැති ඒවා add වෙනවා (Spotify එක duplicate ඒවා අයින් කරනවා).
+* `--yes` නැතුව = **dry run**. මොනවද යන්නේ කියලා කලින් print වෙනවා.
+* `data/sync-state.json.bak` එකක් ඉතුරු වෙනවා (ඕන නැත්නම් `--no-backup`).
+* **Actions වලින්:** Run workflow → *Emergency: reset the sync database* → scope එක තෝරන්න. ඒක sync එකට **කලින්** දුවනවා, ඒ නිසා එකම run එකේදී database එක rebuild වෙනවා. Dry-run box එක tick කරලා තිබ්බොත් reset එක **preview** එකක් විතරයි.
+
 ## 2b1a. Rate limit — search ගණන පාලනය
 
 Steps 29ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:

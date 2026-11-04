@@ -18,6 +18,9 @@ name: YouTube to Spotify sync
 #   vars.SEARCH_PAUSE_SECONDS      optional, default 0.5 s (extra gap between two searches)
 #   vars.SPOTIFY_BATCH_SIZE        optional, default 100 (1-100)
 #   vars.SYNC_ENABLED              set to 'true' to let scheduled runs write
+#   manual run only: the reset_db input (none / history / playlist / all)
+#   drops part of the sync database before syncing - the emergency switch,
+#   never touches the Spotify playlist, keeps a .bak copy of the file
 #   (the Sunday run also retries skips older than 7 days - no setting needed)
 
 on:
@@ -42,6 +45,15 @@ on:
         type: boolean
         default: true
         required: false
+      reset_db:
+        description: 'Emergency: reset the sync database before syncing (leaves Spotify untouched)'
+        type: choice
+        default: 'none'
+        options:
+          - none
+          - history
+          - playlist
+          - all
 permissions:
   contents: write
 concurrency:
@@ -85,6 +97,32 @@ jobs:
           umask 077
           printf '%s\n' "$SPOTIFY_COOKIE" > cookies/spotify.txt
 
+      # Emergency switch. It runs before the sync (so the same run rebuilds the
+      # database) and never touches the Spotify playlist - it only forgets what
+      # the sync already did. A .bak copy of the file is committed with it.
+      - name: Reset the sync database (optional)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset_db != 'none' }}
+        env:
+          RESET_DB: ${{ inputs.reset_db }}
+          SPOTIFY_PLAYLIST_INPUT: ${{ secrets.SPOTIFY_PLAYLIST || vars.SPOTIFY_PLAYLIST }}
+        run: |
+          SPOTIFY_URL="$SPOTIFY_PLAYLIST_INPUT"
+          SPOTIFY_ID="${SPOTIFY_URL##*/playlist/}"
+          SPOTIFY_ID="${SPOTIFY_ID%%\?*}"
+          echo "::warning::Resetting the sync database (scope: $RESET_DB). The Spotify playlist is not touched."
+          # A preview stays a preview: with the dry-run box ticked this only
+          # reports what the reset would drop.
+          YES=''
+          if [ "$DRY_RUN" != 'true' ]; then YES='--yes'; fi
+          if [ "$YES" = '' ]; then
+            echo '::notice::Dry run: the database reset is only previewed, nothing is written.'
+          fi
+          if [ "$RESET_DB" = 'playlist' ]; then
+            python -m syncer.app --reset-db playlist --playlist "$SPOTIFY_ID" $YES
+          else
+            python -m syncer.app --reset-db "$RESET_DB" $YES
+          fi
+
       - name: Sync playlists (dry run unless DRY_RUN=false)
         id: sync
         env:
@@ -124,6 +162,7 @@ jobs:
           SEARCH_PAUSE_SECONDS: ${{ vars.SEARCH_PAUSE_SECONDS || secrets.SEARCH_PAUSE_SECONDS || '0.5' }}
           SPOTIFY_BATCH_SIZE: ${{ vars.SPOTIFY_BATCH_SIZE || secrets.SPOTIFY_BATCH_SIZE || '100' }}
           SYNC_ENABLED: ${{ vars.SYNC_ENABLED }}
+          RESET_DB: ${{ inputs.reset_db }}
           # Only the playlist name is read here (one read-only API call).
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           YOUTUBE_PLAYLIST: ${{ secrets.YOUTUBE_PLAYLIST || vars.YOUTUBE_PLAYLIST || 'https://www.youtube.com/playlist?list=REPLACE_WITH_YOUR_YOUTUBE_PLAYLIST_ID' }}
@@ -147,6 +186,9 @@ jobs:
             echo "| Dry run | \`$DRY_RUN\` |"
             echo "| Scheduled writes enabled | \`${SYNC_ENABLED:-false}\` |"
             echo "| Weekly skip retry | \`${RETRY_SKIPPED:-false}\` |"
+            if [ -n "${RESET_DB:-}" ] && [ "$RESET_DB" != 'none' ]; then
+              echo "| Database reset | \`$RESET_DB\` (Spotify untouched) |"
+            fi
             echo "| Request delay | \`$REQUEST_DELAY_SECONDS\` s |"
             echo "| Search pause | \`$SEARCH_PAUSE_SECONDS\` s |"
             echo "| Batch size | \`$SPOTIFY_BATCH_SIZE\` |"
@@ -171,6 +213,9 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add data/sync-state.json
+          if [ -f data/sync-state.json.bak ]; then
+            git add -f data/sync-state.json.bak
+          fi
           if [ "$DRY_RUN" = "true" ]; then
             git commit -m 'Update skip/failure bookkeeping (dry run)'
           else
