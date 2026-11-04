@@ -35,7 +35,7 @@ Project folder එක ඇතුළේ (`spotify-yt-playlist-sync/.github/workflo
 ```yaml
 on:
   schedule:
-    - cron: '0 */6 * * *'       # හැම 6 පැයකට (UTC)
+    - cron: '17 */6 * * *'      # හැම 6 පැයකට, මිනිත්තු 17 (UTC) — busy hour එක මග හරින්න
 ```
 
 | UTC | Sri Lanka (UTC+5:30) |

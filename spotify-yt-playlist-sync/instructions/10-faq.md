@@ -22,7 +22,7 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 ඔව් — `data/sync-state.json` (video ID → Spotify track ID). Live run එකක් ඉවර වෙද්දී bot එක ඒක commit කරනවා. ඒක තමයි "එකම සින්දුව ආයේ add නොවෙන්න" කියන එකේ ප්‍රධාන ආරක්ෂාව. බලන්න: Job summary එකේ `🗄️ Database` table, `python -m syncer.app --db-summary`, හෝ Telegram full log එකේ ADD lines.
 
 **Q. දවසට කී පාරක් දුවනවද?**
-`0 */6 * * *` = **දවසට 4** (හැම 6 පැයකට). Public repo නිසා minutes limit නෑ. Scheduled runs dry run — ඇත්තට ඕන නම් `SYNC_ENABLED=true`.
+`17 */6 * * *` = **දවසට 4** (හැම 6 පැයකට, මිනිත්තු 17ට). Public repo නිසා minutes limit නෑ. Scheduled runs dry run — ඇත්තට ඕන නම් `SYNC_ENABLED=true`.
 
 **60-day disable:** public repo එකක commit/PR වගේ **activity නැතුව දවස් 60ක්** ගියොත් GitHub schedule එක *"This scheduled workflow is disabled because there hasn't been activity in this repository"* කියලා **auto-disable** කරනවා (Actions tab එකේ **Enable workflow** button එකකුත් එනවා). අපේ repo එකේ අලුත් සින්දු නැති මාසෙක DB commit එකක් එන්නෙ නෑ — ඒ නිසා හැම මාසෙම **1 වෙනිදා** එන run එක `Keep the schedule alive (monthly heartbeat)` empty commit එකක් දාලා clock එක reset කරනවා. ඒක නැති වුණොත් (~මාස 2ක් repo එක නිශ්ශබ්ද නම්) **Enable workflow** එබන්න වෙනවා.
 

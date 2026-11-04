@@ -25,7 +25,7 @@ SPOTIFY_BATCH_SIZE    = 100    (1–100; tracks per add request)
 | `REQUEST_DELAY_SECONDS` | `2` |
 | `SPOTIFY_BATCH_SIZE` | `100` |
 | `SYNC_ENABLED` | unset (scheduled runs stay dry) |
-| Schedule | `0 */6 * * *` UTC = දවසට 4 (05:30, 11:30, 17:30, 23:30 SL) |
+| Schedule | `17 */6 * * *` UTC = දවසට 4 (05:47, 11:47, 17:47, 23:47 SL) |
 | Job timeout | 180 min |
 | Retries (reads) | 3, `Retry-After` respected |
 | Retries (writes) | 0 — never |
