@@ -91,6 +91,20 @@ Uploader `Artist - Song` කියලා ලියනවා, ඒත් parser �
 
 ඒ නිසා uploader වෙන කෙනෙක් නම්, හෝ Spotify එකේ ඒ නම නැත්නම් → skip එකමයි.
 
+## 2b2a. Label Engine වගේ double line එක
+
+```
+SHAKA (SLOWED) · Nulteex · ewyx     ← song(version එකත් එක්ක) · artist · artist
+SHAKA                                ← ඊට පස්සේ එන plain song line එක
+℗ INTERTONE
+Producer: Ion Purice                 ← real names, search කරන්නේ නෑ
+```
+
+* `credit line` එකේ විතරක් artists ගන්නවා; ඊට පස්සේ එන plain song line එක artist කියලා ගන්නේ නෑ.
+* **credit කරලා තියෙන එක artist කෙනෙක් ගැලපුණා නම් ඇති** — Spotify එකේ `ewyx` නැතුව `Nulteex` විතරක්
+  තිබ්බත් match වෙනවා. ඒත් track එකේ artist `Somebody` විතරක් නම් → refuse (credit එකට විරුද්ධයි).
+* `Nulteex` ↔ `Nulteex Music` වගේ කෙටි/දිගු නම් එකම කෙනා විදිහට ගන්නවා.
+
 ## 2b2b. `STRICT` ඇයි අඩු? — description එකේ තියෙන artist credit
 
 Distributor ලාගේ uploads වල artist නම **title එකේ නෑ**, description එකේ විතරයි:

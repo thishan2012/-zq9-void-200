@@ -28,9 +28,12 @@ def track_title(track):
 def track_artists(track):
     names = set()
     for artist in track.get('artists', []):
-        if isinstance(artist, dict) and artist.get('name'):
-            names.add(app.normalized(artist['name']))
-    return names - {''}
+        if not isinstance(artist, dict):
+            continue
+        name = app.normalized(artist.get('name'))
+        if name:            # a null name is not an artist, and not a conflict
+            names.add(name)
+    return names
 
 
 def version_ok(version_text, track):
@@ -80,6 +83,35 @@ def known_artists(step):
     strong = [name for name in names if app.normalized(name) not in channel_keys]
     return {app.normalized(name) for name in strong} - {''}
 
+def conflict(step, track):
+    """True when the track's artists contradict a credit the video carries.
+
+    Compared short-form, so "Nulteex" agrees with "Nulteex Music" while
+    "Somebody" still contradicts it. An empty artist name is never a conflict:
+    Spotify sometimes ships an artist slot with no name (or None), and that slot
+    must not make a correct match look wrong.
+    """
+    known = known_artists(step)
+    if not known and not description_artists(step):
+        # When the title carries no credit, the description may - and then it is
+        # the only artist proof there is.
+        known = description_artists(step)
+    if not known:
+        return False
+    return not any(shared_credit(a, b) for a in known for b in track_artists(track))
+
+
+def shared_credit(a, b):
+    """True when two artist names are the same act (short form included)."""
+    a, b = a.replace(' ', ''), b.replace(' ', '')
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= 4 and long.startswith(short)
+
+
 def artist_ok(step, track):
     """No conflict with the artists the video credits.
 
@@ -92,6 +124,7 @@ def artist_ok(step, track):
     if known and known & track_artists(track):
         return True
     if known:
+        # A channel-name match proves nothing: the query used that channel name.
         return False
     # The title carries no credit: the distributor's description may, and that
     # is then the only artist proof there is ("Provided to YouTube by …").
@@ -249,7 +282,11 @@ class ReversedCreditStep(Step):
         for name in app.artist_candidates(artist):
             candidates += self.search(client, token, name, song)
         candidates += self.search(client, token, '', song)
-        return best(self.version_checked(candidates),
+        # Same rule as everywhere else: the names must agree, the credited artist
+        # must not conflict, and a clear winner must exist.
+        keep = [track for track in self.version_checked(candidates)
+                if name_matches(song, track, floor=.90) and artist_ok(self, track)]
+        return best(keep,
                     lambda track: SequenceMatcher(None, app.normalized(song), track_title(track)).ratio(),
                     floor=.90)
 
@@ -268,7 +305,9 @@ class SingleArtistStep(Step):
             for track in self.search(client, token, name, song):
                 if app.normalized(name) in track_artists(track):
                     candidates.append(track)
-        return best(self.version_checked(candidates),
+        keep = [track for track in self.version_checked(candidates)
+                if name_matches(song, track, floor=.90) and artist_ok(self, track)]
+        return best(keep,
                     lambda track: SequenceMatcher(None, app.normalized(song), track_title(track)).ratio(),
                     floor=.90)
 
@@ -284,7 +323,7 @@ class ChannelSearchStep(Step):
         candidates = []
         for name in app.channel_names(self.parsed, self.video)[:3]:
             candidates += self.search(client, token, name, self.version_text)
-        return one_of(self.named(candidates, floor=.90))
+        return one_of([track for track in self.named(candidates, floor=.90) if artist_ok(self, track)])
 
 
 class TopicChannelStep(Step):
@@ -508,7 +547,8 @@ class UploaderSearchStep(Step):
     def run(self, client, token):
         channel = app.channel_names(self.parsed, self.video)[0]
         candidates = self.search(client, token, '', f'{channel} {app.strip_marketing(self.version_text)}')
-        keep = [track for track in self.version_checked(candidates) if name_matches(self.version_text, track, floor=.90)]
+        keep = [track for track in self.version_checked(candidates)
+                if name_matches(self.version_text, track, floor=.90) and artist_ok(self, track)]
         return one_of(keep)
 
 
