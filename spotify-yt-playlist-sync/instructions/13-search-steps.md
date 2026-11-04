@@ -91,6 +91,30 @@ Uploader `Artist - Song` කියලා ලියනවා, ඒත් parser �
 
 ඒ නිසා uploader වෙන කෙනෙක් නම්, හෝ Spotify එකේ ඒ නම නැත්නම් → skip එකමයි.
 
+## 2b2b. `STRICT` ඇයි අඩු? — description එකේ තියෙන artist credit
+
+Distributor ලාගේ uploads වල artist නම **title එකේ නෑ**, description එකේ විතරයි:
+
+```
+Provided to YouTube by DistroKid
+
+FUNK TONTO · MC Ombrinho          ← song · artist
+
+℗ 2026 Raiden
+```
+
+කලින් script එක `Raiden` (channel එකේ නම) artist කියලා ගත්තා → හරි track එක ආවත් `artist_ok()` එකෙන්
+refuse වුණා → `STRICT` fail, ඒ නිසා extra steps වලට වැටුණා. දැන්:
+
+* description එකේ `Song · Artist` line එකේ **song කොටස video title එකේ මුල** නම් (`FUNK TONTO` +
+  `(feat. Mc Ombrinho) [Slowed]`) ඒකෙන් artist ගන්නවා, song එක විදිහට තියෙන්නේ video title එකම
+  (version වචන එහෙමම තියෙනවා).
+* title එකේ artist credit එකක් නැත්නම්, `artist_ok()` description එකේ artist එකෙන් බලනවා →
+  ඒ නිසා **`STRICT` එකෙන්ම** match වෙනවා.
+* description එකේ තියෙන ඒක **වෙන සින්දුවක්** නම් → ගන්නේ නෑ. Artist වැරදි නම් → ගන්නේ නෑ.
+* `(feat. X)` block එක දැන් song name එකේ කොටසක් නෙවෙයි — Spotify එකේ `FUNK TONTO` (feat. artist
+  වෙනම credit කරලා) එකම සින්දුව විදිහට match වෙනවා. Version වචන තියෙන්නේ එහෙමම (slowed ≠ original).
+
 ## 2b3. `Release - Topic` වගේ channel වල ඒවා
 
 YouTube එකේ `… - Topic` channels දෙකක් තියෙනවා:
