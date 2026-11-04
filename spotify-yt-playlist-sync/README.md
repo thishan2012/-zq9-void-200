@@ -53,6 +53,7 @@ Go to **Settings → Secrets and variables → Actions** in *your private fork/c
 | `SEARCH_PAUSE_SECONDS` | `0.5` | extra gap between two **searches** (0–60), and it doubles up to 30 s after a 429. |
 | `RETRY_AFTER_DAYS` | `7` | (code constant) the weekly Sunday run retries skips older than this many days. |
 | `SPOTIFY_BATCH_SIZE` | `100` | tracks per add request (1–100). Lower it if Spotify starts rejecting. |
+| `SPOTIFY_MAX_ADDS_PER_RUN` | `15` | songs added per run (0 = no cap). The rest are matched but left for the next run, so a backlog never goes out as one bulk add. |
 | `SYNC_ENABLED` | *(unset)* | `true` lets **scheduled** runs write. Unset = scheduled runs stay dry runs. |
 
 > ⚠️ **`SPOTIFY_COOKIE` is an account credential, not an API key.** Anyone who can read it can act as
@@ -138,7 +139,8 @@ python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
 export YOUTUBE_PLAYLIST='https://www.youtube.com/playlist?list=PL…'
 export SPOTIFY_PLAYLIST='https://open.spotify.com/playlist/…'
 export YOUTUBE_API_KEY='…'
-# optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SEARCH_PAUSE_SECONDS, SPOTIFY_BATCH_SIZE
+# optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, REQUEST_DELAY_SECONDS, SEARCH_PAUSE_SECONDS,
+# SPOTIFY_BATCH_SIZE, SPOTIFY_MAX_ADDS_PER_RUN
 .venv/bin/python -m syncer.app --dry-run     # preview, no Spotify writes
 .venv/bin/python -m syncer.app --explain     # why were the skipped songs skipped? (read-only)
 .venv/bin/python -m syncer.app --stats       # which step found how many songs (history)
@@ -283,5 +285,6 @@ cookies/README.md            why the cookie file is not in Git
 | `REQUEST_DELAY_SECONDS` | optional variable | default 2 s |
 | `SEARCH_PAUSE_SECONDS` | optional variable | default 0.5 s |
 | `SPOTIFY_BATCH_SIZE` | optional variable | default 100 (1–100) |
+| `SPOTIFY_MAX_ADDS_PER_RUN` | optional variable | default 15 (0 = no cap) |
 
 Secrets win over variables; both are read (`secrets.X || vars.X || placeholder`).

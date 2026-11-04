@@ -16,6 +16,7 @@ TELEGRAM_CHAT_ID      = 123456789 / -100…           (optional)
 ```text
 REQUEST_DELAY_SECONDS = 2      (0–60; rate limit guard)
 SPOTIFY_BATCH_SIZE    = 100    (1–100; tracks per add request)
+SPOTIFY_MAX_ADDS_PER_RUN = 15  (0 = no cap; rest next run)
 ```
 
 ## Defaults (දෙකම නැතුවත් වැඩ කරනවා)
@@ -24,6 +25,7 @@ SPOTIFY_BATCH_SIZE    = 100    (1–100; tracks per add request)
 |---|---|
 | `REQUEST_DELAY_SECONDS` | `2` |
 | `SPOTIFY_BATCH_SIZE` | `100` |
+| `SPOTIFY_MAX_ADDS_PER_RUN` | `15` (0 = off) |
 | `SYNC_ENABLED` | unset (scheduled runs stay dry) |
 | Schedule | `17 */6 * * *` UTC = දවසට 4 (05:47, 11:47, 17:47, 23:47 SL) |
 | Job timeout | 180 min |

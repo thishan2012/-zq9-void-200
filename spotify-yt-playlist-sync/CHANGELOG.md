@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-11-04 (a run adds at most 15 songs)
+
+A backlog used to be added in one go: the first live run put 158 tracks into the playlist inside a
+few minutes. The total is not the problem - the size of one burst is, which is what looks abusive to
+Spotify and what earned the bot-activity mail.
+
+* `SPOTIFY_MAX_ADDS_PER_RUN` (default **15**, `0` = no cap) limits the songs one run writes to
+  Spotify. Everything above the limit is matched normally, logged as **NEXT RUN**, and added by the
+  next run - six hours later, or at the next manual run.
+* A deferred song is **not** remembered as a skip: the database never records it, so it is searched
+  again by the next run instead of disappearing.
+* A dry run ignores the cap: it writes nothing, so it must still show what a live run would do.
+* The summary line gained `| Next run: N` and the job summary shows the limit.
+
 ## 2026-11-04 (minute 17, not minute 0)
 
 The four daily runs moved from `0 */6 * * *` to `17 */6 * * *`. The top of the hour is GitHub's
