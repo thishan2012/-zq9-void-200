@@ -1155,7 +1155,12 @@ def search_more(client, video, parsed, token, state, keep_evidence=False):
     if keep_evidence:
         state['keep_evidence'] = True
     tried = state.setdefault('tried', [])
+    # A step that actually asked Spotify for something did some of the work,
+    # even when a *later* step made the match. Counting only the winner would
+    # say "SONGTAG never matched" about a step that is trying hard every run.
+    worked = state.setdefault('queries', {})
     for step in build_steps(video, parsed, state):
+        before = getattr(client, 'searches', 0)
         try:
             track = step.run(client, token)
         except app.FatalError:
@@ -1164,6 +1169,9 @@ def search_more(client, video, parsed, token, state, keep_evidence=False):
             raise
         except app.SyncError:
             continue
+        after = getattr(client, 'searches', 0)
+        if isinstance(before, int) and isinstance(after, int) and after > before:
+            worked[step.code] = worked.get(step.code, 0) + (after - before)
         tried.append(step.code)
         if track:
             return track, step.code

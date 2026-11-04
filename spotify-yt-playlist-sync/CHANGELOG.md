@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-04 (`--stats` tells "never won" apart from "never ran")
+
+The first live run showed why the tally was misleading: it counted only the step that *won* each song, so
+26 of 29 steps read as "Never matched" - including ones that search on every single song and simply lose to
+an earlier step.
+
+* Every run now also records **how many queries each step actually sent** (`worked`) and **how many songs it
+  was tried on** (`ran`), next to the existing `matched` count.
+* `--stats` shows a **Queries sent** column and splits the closing line into
+  **Tried but never won** (real candidates for removal) and
+  **Never tried (its condition never applied to these videos)**, which must not be pruned.
+* `MANUAL` is labelled as a manual pick instead of an extra step.
+
+Tests: **229**.
+
 ## 2026-11-04 (`ISRC` step: exact recording identity)
 
 The description parser already read `ISRC: …`; it is now **used**:
