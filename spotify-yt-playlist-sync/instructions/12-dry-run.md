@@ -103,7 +103,8 @@ Would add: 187 | Skipped: 12 | Failed: 1
 + (summary එකේ SKIP/FAIL විස්තර)
 
 ```
-YouTube → Spotify full log (DRY RUN): 200 event(s)
+YouTube → Spotify log (DRY RUN): 36 song(s) to report
+Already present, not listed (125): 118 × Track already in Spotify playlist; 7 × Already recorded in the sync database
 
 #1 WOULD ADD: Artist - Song
 Match: STRICT
@@ -122,7 +123,7 @@ Reason: Track already in Spotify playlist
 | `WOULD ADD` + `Match: STRICT` | හොඳම case — artist+title+version හරි | මොකුත් නෑ |
 | `Match: LOOSE` / `DETAIL` | ටිකක් අඩු විශ්වාසය | Spotify link එක open කරලා සින්දුව හරිද බලන්න |
 | `SKIP: No confident … match` | හම්බුනේ නෑ | `data/track-overrides.json` එකට manual mapping |
-| `SKIP: Track already in Spotify playlist` | දැනටමත් තියෙනවා | මොකුත් නෑ (හරි) |
+| `SKIP: Track already in Spotify playlist` | දැනටමත් තියෙනවා — **Telegram එකට එන්නේ නෑ**, header එකේ ගණන විතරයි | මොකුත් නෑ (හරි) |
 | `FAIL: …` | search/add error | [07-troubleshooting](07-troubleshooting.md) |
 
 හොඳ නම් විතරයි `dry_run` ☐ uncheck කරලා live run එකක් දාන්න.

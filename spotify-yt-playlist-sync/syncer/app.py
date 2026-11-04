@@ -737,11 +737,13 @@ def issue_text(value, limit=600):
     text = ''.join(ch for ch in text if ch.isprintable())
     return text if len(text) <= limit else text[:limit - 1] + '…'
 
-def report_issue(issues, status, video, reason, track_id=None, method=None):
+def report_issue(issues, status, video, reason, track_id=None, method=None, quiet=False):
+    """Record one outcome. quiet=True keeps it out of the Telegram reports."""
     if issues is not None:
         issues.append({'status': status, 'title': issue_text(video.get('title')) or '(title unavailable)',
                        'channel': issue_text(video.get('channel')), 'video_id': video.get('id'),
-                       'reason': issue_text(reason), 'track_id': track_id, 'method': method})
+                       'reason': issue_text(reason), 'track_id': track_id, 'method': method,
+                       'quiet': quiet})
 
 def utf16_chunks(text, limit=4000):
     """Split plain text on line boundaries so Telegram limits are never exceeded."""
@@ -768,13 +770,26 @@ def utf16_chunks(text, limit=4000):
     return [chunk for chunk in chunks if chunk.strip()]
 
 
+def skip_breakdown(events):
+    """Count the quiet (already synced / already present) outcomes per reason."""
+    counts = {}
+    for event in events:
+        if event.get('quiet'):
+            counts[event['reason']] = counts.get(event['reason'], 0) + 1
+    return counts
+
+
 def activity_messages(header, events):
-    """Full per-song log for Telegram: every ADD, SKIP and FAIL entry."""
+    """Full per-song log for Telegram: every listing except expected duplicates."""
     limit = 4000
     def size(text):
         return len(text.encode('utf-16-le')) // 2
     messages = [header]
     for event in events:
+        if event.get('quiet'):
+            # Already synced / already in the playlist: saved in the database,
+            # summarised in the header, not worth a message per song.
+            continue
         block = f"#{event['n']} {event['status']}: {event['title']}"
         if event.get('channel'):
             block += f"\nChannel: {issue_text(event['channel'], 120)}"
@@ -802,8 +817,9 @@ def telegram_messages(summary, issues):
         return len(text.encode('utf-16-le')) // 2
     messages = [summary]
     for issue in issues:
-        if issue['status'] in ('ADD', 'WOULD ADD'):
-            # Successful additions are only listed in the full-log messages.
+        if issue['status'] in ('ADD', 'WOULD ADD') or issue.get('quiet'):
+            # Successful additions are only listed in the full-log messages;
+            # already-present songs are only counted (see skip_breakdown).
             continue
         lines = [f"{issue['status']}: {issue['title']}"]
         if issue['channel']:
@@ -901,13 +917,14 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
         vid = video['id']
         if vid in db['videos']:
             counts['skip'] += 1
-            report_issue(issues, 'SKIP', video, 'Already recorded in the sync database', db['videos'][vid])
+            report_issue(issues, 'SKIP', video, 'Already recorded in the sync database', db['videos'][vid],
+                         quiet=True)
             LOG.info('SKIP %s: already recorded', vid)
             continue
         if vid in seen:
             # The same video appears twice in the YouTube playlist.
             counts['skip'] += 1
-            report_issue(issues, 'SKIP', video, 'Duplicate video in the YouTube playlist')
+            report_issue(issues, 'SKIP', video, 'Duplicate video in the YouTube playlist', quiet=True)
             LOG.info('SKIP %s: duplicate video in the YouTube playlist', vid)
             continue
         seen.add(vid)
@@ -956,7 +973,7 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 continue
             if tid in existing:
                 counts['skip'] += 1
-                report_issue(issues, 'SKIP', video, 'Track already in Spotify playlist', tid, method)
+                report_issue(issues, 'SKIP', video, 'Track already in Spotify playlist', tid, method, quiet=True)
                 LOG.info('SKIP %s: track already in Spotify playlist', vid)
                 if not dry_run:
                     db['videos'][vid] = tid
@@ -1091,11 +1108,20 @@ def main():
             summary += f'\nRun stopped: {issue_text(fatal_reason)}'
         LOG.info(summary)
         events = [dict(event, n=number) for number, event in enumerate(issues, start=1)]
-        LOG.info('Full report: %d event(s)', len(events))
+        quiet = skip_breakdown(events)
+        quiet_total = sum(quiet.values())
+        LOG.info('Full report: %d event(s), %d already-present (not sent to Telegram)',
+                 len(events), quiet_total)
+        for reason, number in sorted(quiet.items()):
+            LOG.info('  %d × %s', number, reason)
         for message in telegram_messages(summary, events):
             client.telegram(os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID'), message)
         if events:
-            header = f"YouTube → Spotify full log ({'DRY RUN' if args.dry_run else 'SYNC'}): {len(events)} event(s)"
+            mode = 'DRY RUN' if args.dry_run else 'SYNC'
+            header = f'YouTube → Spotify log ({mode}): {len(events) - quiet_total} song(s) to report'
+            if quiet_total:
+                details = '; '.join(f'{number} × {reason}' for reason, number in sorted(quiet.items()))
+                header += f'\nAlready present, not listed ({quiet_total}): {details}'
             for message in activity_messages(header, events):
                 client.telegram(os.environ.get('TELEGRAM_BOT_TOKEN'), os.environ.get('TELEGRAM_CHAT_ID'), message)
     return 0 if result == 'SUCCESS' else 1

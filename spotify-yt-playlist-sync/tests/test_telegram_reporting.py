@@ -128,7 +128,7 @@ class TelegramReportingTests(unittest.TestCase):
         messages = [call.args[2] for call in client.telegram.call_args_list]
         self.assertIn('Would add: 0 | Skipped: 1 | Failed: 0', messages[0])
         self.assertIn('SKIP: Artist - No Match', messages[0])
-        self.assertTrue(any('full log' in message for message in messages))
+        self.assertTrue(any('Spotify log (DRY RUN)' in message for message in messages))
 
     def test_main_reports_global_fatal_before_any_song(self):
         client = Mock()
@@ -162,3 +162,65 @@ class TelegramReportingTests(unittest.TestCase):
         self.assertNotIn('parse_mode', payload)
 
 if __name__ == '__main__': unittest.main()
+
+
+class QuietSkipTests(unittest.TestCase):
+    """Songs already synced or already in the playlist are saved, not reported."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name) / 'state.json'
+        self.patch = patch.object(app, 'STATE_PATH', self.path)
+        self.patch.start()
+        self.addCleanup(self.patch.stop)
+
+    def issues_for(self, videos, existing=(), state=None, dry=False):
+        issues = []
+        counts = {'add': 0, 'skip': 0, 'fail': 0}
+        app.sync(Client(existing), videos, 'playlist', 'token',
+                 state or {'version': 1, 'playlists': {}}, dry, counts, issues=issues)
+        return issues, counts
+
+    def test_already_in_playlist_is_saved_but_not_reported(self):
+        videos = [{'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song', 'channel': 'U'}]
+        issues, _ = self.issues_for(videos, existing={TRACK})
+        # The database records the mapping so it is never searched again...
+        self.assertEqual(app.load_state(self.path)['playlists']['playlist']['videos'],
+                         {'AAAAAAAAAAA': TRACK})
+        # ...but Telegram says nothing about it.
+        self.assertEqual(app.telegram_messages('summary', []), ['summary'])
+        self.assertNotIn('Good Song', '\n'.join(app.telegram_messages('summary', issues)))
+        self.assertEqual(list(app.activity_messages('log', [dict(i, n=1) for i in issues])), ['log'])
+        self.assertEqual(app.skip_breakdown(issues), {'Track already in Spotify playlist': 1})
+
+    def test_no_confident_match_is_still_reported(self):
+        videos = [{'id': 'BBBBBBBBBBB', 'title': 'Artist - No Match', 'channel': 'U'}]
+        issues, _ = self.issues_for(videos)
+        self.assertFalse(issues[0].get('quiet'))
+        text = '\n'.join(app.telegram_messages('summary', issues))
+        self.assertIn('No confident artist/title/version match', text)
+        self.assertIn('BBBBBBBBBBB', text)
+
+    def test_header_counts_quiet_skips(self):
+        videos = [
+            {'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song', 'channel': 'U'},
+            {'id': 'BBBBBBBBBBB', 'title': 'Artist - No Match', 'channel': 'U'},
+        ]
+        issues, _ = self.issues_for(videos, existing={TRACK})
+        quiet = app.skip_breakdown(issues)
+        header = f'log: {len(issues) - sum(quiet.values())} song(s) to report'
+        header += f"\nAlready present, not listed ({sum(quiet.values())}): 1 × Track already in Spotify playlist"
+        messages = app.activity_messages(header, [dict(i, n=n) for n, i in enumerate(issues, 1)])
+        self.assertIn('1 song(s) to report', messages[0])
+        self.assertIn('Already present, not listed (1)', messages[0])
+        body = '\n'.join(messages)
+        self.assertNotIn('Artist - Good Song', body)
+        self.assertIn('Artist - No Match', body)
+
+    def test_already_recorded_video_is_quiet(self):
+        state = {'version': 1, 'playlists': {'playlist': {'videos': {'AAAAAAAAAAA': TRACK}, 'pending': None}}}
+        issues, counts = self.issues_for([{'id': 'AAAAAAAAAAA', 'title': 'Artist - Good Song'}], state=state)
+        self.assertEqual(counts['skip'], 1)
+        self.assertTrue(issues[0]['quiet'])
+        self.assertEqual(app.skip_breakdown(issues), {'Already recorded in the sync database': 1})

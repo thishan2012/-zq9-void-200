@@ -146,9 +146,11 @@ The cookie file is read from `cookies/spotify.txt` (or `SPOTIFY_COOKIE_FILE`). I
 Two kinds of messages per run:
 
 1. **Summary** — result, counts, and per-song details for `SKIP` / `FAIL` only.
-2. **Full log** — *every* song with index, status (`ADD`, `WOULD ADD`, `SKIP`, `FAIL`), channel, YouTube
-   link, matched method, Spotify link, and reason. Long logs are split at letter/song boundaries and stay
-   under Telegram's 4096-character limit.
+2. **Full log** — every song that needs attention (index, status `ADD` / `WOULD ADD` / `SKIP` / `FAIL`,
+   channel, YouTube link, match method, Spotify link, reason). Songs that are **already synced or already
+   in the playlist are saved to the database but not listed** — they appear as one count line in the header
+   (`Already present, not listed (125): …`), so a 200-song run sends 2–4 messages instead of a dozen.
+   Long logs are split at song boundaries and stay under Telegram's 4096-character limit.
 
 Both are also printed to the Actions log.
 

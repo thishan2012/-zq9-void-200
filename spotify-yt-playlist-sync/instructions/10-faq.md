@@ -27,6 +27,10 @@ Spotify playlist එකට **එක HTTP request එකකින් tracks ක�
 **Q. 200 songs කී වෙලාවක් ගන්නවද?**
 Delay 2s + search ≈ 5–10 min. Job timeout 180 min. GitHub Actions minutes (private repo) ~8 min/run.
 
+**Q. "Track already in Spotify playlist" කියන ඒවා Telegram එකට එන්නේ නෑ — හරිද?**
+ඔව්, ඒක හිතාමතාම. ඒ සින්දු database එකේ save වෙනවා (ආයේ search කරන්නේ නෑ), ඒත් message එකක් එවන්නේ නෑ. Header එකේ ගණන විතරයි: `Already present, not listed (125): 118 × Track already in Spotify playlist`.
+**Add නොවුණු නියම හේතු** තියෙන ඒවා (`No confident artist/title/version match`, `Unavailable…`, `FAIL`) තවම විස්තර සහිතව එනවා 👍
+
 **Q. Telegram එකට message ගොඩක් එනවා 😅**
 ඒක තමයි full log එක (ඔයා ඉල්ලපු දේ). අඩු කරන්න ඕන නම් `TELEGRAM_*` secrets අයින් කරන්න — එතකොට Actions log එකේ විතරයි.
 

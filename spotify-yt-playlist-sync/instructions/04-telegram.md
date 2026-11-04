@@ -21,6 +21,20 @@ Response එකේ `"chat":{"id":123456789, …}` → ඒ අංකය **`TELEGR
 
 ## 3. ඔයාට එන messages (එක run එකකට 2ක් + splits)
 
+### මොනවද **ලොක් එකට එන්නේ නැත්තේ** (2026-11 update)
+
+දැනටමත් sync වෙලා තියෙන / playlist එකේ තියෙන සින්දු **Telegram එකට යන්නේ නෑ** — ඒවා database එකේ save කරනවා විතරයි:
+`Already recorded in the sync database`, `Track already in Spotify playlist`, `Duplicate video in the YouTube playlist`.
+ඒවා ගණන header එකේ එක පේළියකින් පෙන්නනවා:
+
+```
+YouTube → Spotify log (DRY RUN): 36 song(s) to report
+Already present, not listed (125): 118 × Track already in Spotify playlist; 7 × Already recorded in the sync database
+```
+
+ඒ නිසා 200-song playlist එකක මැසේජ් 14ක් වෙනුවට **2–4ක්** විතරයි එන්නේ.
+(මේවා Actions log එකේ `SKIP … already recorded` විදිහට තවම තියෙනවා, Job summary එකේ counts වලත් පේනවා.)
+
 **1) Summary**
 ```
 YouTube → Spotify SYNC: SUCCESS
