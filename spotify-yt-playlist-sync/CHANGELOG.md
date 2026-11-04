@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-04 (fix + last resort)
+
+### Fixed: the run stopped while building the summary
+
+`UnboundLocalError: cannot access local variable 'summary'` — the extra-step line was added to the summary
+before the summary existed. The order is now: counts line → `Matched by extra step:` → `Run stopped:`.
+
+### New step 16: `TOPRESULT` (last resort)
+
+When every other step misses, the **first Spotify result** for the video title is taken - but only when all
+three checks pass: the words of the video title really appear in the track title (`same_song_title()`),
+the recording is the same version (`version_ok()`), and there is no artist conflict (`artist_ok()`).
+It is the last step in the chain, so it can only ever catch songs the other fifteen could not place.
+`MATCHER_VERSION` is now **3**, so songs remembered as skipped get one more try.
+
 ## 2026-11-04 (search steps)
 
 ### Fifteen separate extra search steps (and the slowed-version rule)

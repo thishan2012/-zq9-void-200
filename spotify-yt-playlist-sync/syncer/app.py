@@ -24,7 +24,7 @@ BATCH_MAX = 100  # Spotify accepts at most 100 URIs per playlist add request.
 SEARCH_CACHE_MAX = 5000  # cap on cached search results per run (memory guard).
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
-MATCHER_VERSION = 2  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 3  # bump when matching rules change: skipped songs get one more try.
 # Real reasons that are worth remembering in the database.
 SKIP_REASONS = ('No confident artist/title/version match', 'Unavailable or missing video title',
                 'Same track already planned in this run', 'Same track already planned in this dry run')
@@ -1553,6 +1553,9 @@ def main():
         except OSError:
             LOG.error('Could not save the skip/failure bookkeeping')
         name_line = f"Playlist: {playlist['title']}\n{playlist['url']}\n\n" if playlist.get('url') else ''
+        summary = (f"{name_line}YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n"
+                   f"{'Would add' if args.dry_run else 'Added'}: {counts['add']} | "
+                   f"Skipped: {counts['skip']} | Failed: {counts['fail']}")
         # Which extra search step found what: the quickest way to judge the steps.
         extra = {}
         for event in issues:
@@ -1562,9 +1565,6 @@ def main():
         if extra:
             summary += '\nMatched by extra step: ' + ', '.join(
                 f'{code} ×{number}' for code, number in sorted(extra.items(), key=lambda item: -item[1]))
-        summary = (f"{name_line}YouTube → Spotify {'DRY RUN' if args.dry_run else 'SYNC'}: {result}\n"
-                   f"{'Would add' if args.dry_run else 'Added'}: {counts['add']} | "
-                   f"Skipped: {counts['skip']} | Failed: {counts['fail']}")
         if fatal_reason:
             summary += f'\nRun stopped: {issue_text(fatal_reason)}'
         LOG.info(summary.replace('\n\nPlaylist', '\nPlaylist'))
