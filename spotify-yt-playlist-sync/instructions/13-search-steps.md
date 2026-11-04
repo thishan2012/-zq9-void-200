@@ -91,6 +91,25 @@ Uploader `Artist - Song` කියලා ලියනවා, ඒත් parser �
 
 ඒ නිසා uploader වෙන කෙනෙක් නම්, හෝ Spotify එකේ ඒ නම නැත්නම් → skip එකමයි.
 
+## 2b3. `Release - Topic` වගේ channel වල ඒවා
+
+YouTube එකේ `… - Topic` channels දෙකක් තියෙනවා:
+
+| Channel | මොකක්ද | script එකේ |
+|---|---|---|
+| `HDN - Topic` | artist කෙනෙක්ගේ ඒකම නමින් තියෙන page එක | artist = `HDN` ✅ |
+| `Release - Topic`, `Releases - Topic`, `Record Release` | label එකේ compilation page එක | artist කියලා ගන්නේ **නෑ** ❌ |
+
+`Release - Topic` එකේ `MONTAGEM GALACTO LOCONA (Ultra Slowed)` වගේ title එකකට කලින් artist = `Release` කියලා
+ගත්තා → හැම query එකකුත් `Release MONTAGEM …` වුණා → `artist_ok()` එකෙන් හරි track එකත් **refuse** වුණා.
+දැන් artist credit එකක් නෑ කියලා ගන්නවා, title එක විතරක් search වෙනවා (version + title චෙක් එකම තියෙනවා).
+
+## 2b4. Slowed ඉණිමඟ (`SLOWED` step)
+
+Video එක `Ultra Slowed` නම්, Spotify එකේ ඒ සින්දුවේ `Ultra Slowed` version එක නැති වෙලා **Slowed** එක විතරක්
+තියෙන්න පුළුවන්. `SLOWED` step එක දැන් ඒක ගන්නවා — ඒත් **original, sped up, remix** කවදාවත් ගන්නේ නෑ,
+සහ **වෙනස් rung දෙකක්** එකට ආවොත් (Slowed + Super Slowed) තෝරන්නේ නෑ.
+
 ## 2c. `ALBUM` / `PART` / `POPULAR` — Spotify naming එකේ අවුල්
 
 Spotify එකේ track name එකයි YouTube title එකයි හැම වෙලාවෙම එකට ලියන්නේ නෑ:

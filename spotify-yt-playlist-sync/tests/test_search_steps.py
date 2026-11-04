@@ -204,6 +204,37 @@ class BrokenCreditStepTests(StepTestCase):
         self.assertIsNone(found)
 
 
+class TopicReleaseChannelTests(unittest.TestCase):
+    """A "Release - Topic" page is not an artist; a named one is."""
+
+    def test_a_compilation_page_says_nothing_about_the_artist(self):
+        video_item = video('MONTAGEM GALACTO LOCONA (Ultra Slowed)', channel='Release - Topic')
+        self.assertIsNone(app.metadata(video_item))
+        self.assertEqual(app.channel_names(None, video_item), [])
+
+    def test_a_named_topic_channel_is_the_artist(self):
+        video_item = video('SHAKA (SLOWED)', channel='HDN - Topic')
+        self.assertEqual(app.metadata(video_item), ('HDN', 'SHAKA (SLOWED)'))
+
+    def test_a_compilation_title_is_not_read_as_a_credit(self):
+        video_item = video('MONTAGEM GALACTO LOCONA (Ultra Slowed)', channel='Release - Topic')
+        catalog = Catalog([track('t1', 'MONTAGEM GALACTO LOCONA - Ultra Slowed', 'DJ NEO')])
+        found, _ = self.run_steps(video_item, catalog)
+        self.assertEqual(found['id'], 't1')
+
+    def test_a_wrong_song_is_still_refused(self):
+        video_item = video('MONTAGEM GALACTO LOCONA (Ultra Slowed)', channel='Release - Topic')
+        catalog = Catalog([track('t1', 'MONTAGEM ECLIPSE - Ultra Slowed', 'DJ NEO')])
+        found, _ = self.run_steps(video_item, catalog)
+        self.assertIsNone(found)
+
+    def run_steps(self, video_item, catalog):
+        parsed = app.metadata(video_item)
+        self.assertIsNone(parsed, 'a release page must not become an artist credit')
+        # search_more returns (track, method code).
+        return search_steps.search_more(catalog, video_item, parsed, 'token', {})
+
+
 class UploaderNameTests(unittest.TestCase):
     """An uploader decoration must not hide the artist name."""
 
@@ -245,6 +276,29 @@ class PartSuffixStepTests(StepTestCase):
         video_item = video('MONTAGEM ZEPHYR')
         catalog = Catalog([track('other', 'MONTAGEM NEBULA, Pt. 2', 'X')])
         found, _ = self.run_step(search_steps.PartSuffixStep, video_item, catalog)
+        self.assertIsNone(found)
+
+
+class SlowStepRungTests(StepTestCase):
+    """The SLOWED step may change the rung of the ladder, never the song."""
+
+    def test_a_plain_slowed_edit_is_taken_for_an_ultra_slowed_video(self):
+        video_item = video('MONTAGEM GALACTO LOCONA (Ultra Slowed)')
+        catalog = Catalog([track('t1', 'MONTAGEM GALACTO LOCONA - Slowed', 'DJ NEO')])
+        found, _ = self.run_step(search_steps.SlowStep, video_item, catalog)
+        self.assertEqual(found['id'], 't1')
+
+    def test_the_original_is_never_taken(self):
+        video_item = video('MONTAGEM GALACTO LOCONA (Ultra Slowed)')
+        catalog = Catalog([track('t1', 'MONTAGEM GALACTO LOCONA', 'DJ NEO')])
+        found, _ = self.run_step(search_steps.SlowStep, video_item, catalog)
+        self.assertIsNone(found)
+
+    def test_two_different_rungs_stay_ambiguous(self):
+        video_item = video('MONTAGEM GALACTO LOCONA (Ultra Slowed)')
+        catalog = Catalog([dict(track('a', 'MONTAGEM GALACTO LOCONA - Slowed', 'DJ NEO'), popularity=5),
+                           dict(track('b', 'MONTAGEM GALACTO LOCONA - Super Slowed', 'DJ NEO'), popularity=7)])
+        found, _ = self.run_step(search_steps.SlowStep, video_item, catalog)
         self.assertIsNone(found)
 
 
