@@ -1364,6 +1364,23 @@ def failures(db):
     value = db.get('failures')
     return value if isinstance(value, dict) else {}
 
+def step_stats(db):
+    """Per-method match counts, kept in the playlist database.
+
+    {"STRICT": 41, "SUFFIX": 2, …} - the history that says which steps earn
+    their place, instead of judging from one run's line.
+    """
+    value = db.get('matched')
+    return value if isinstance(value, dict) else {}
+
+def record_match(db, code):
+    """Count one match for a method (STRICT/LOOSE/DETAIL or an extra step code)."""
+    if not isinstance(code, str) or not code:
+        return
+    counts = step_stats(db)
+    counts[code] = (counts[code] if isinstance(counts.get(code), int) else 0) + 1
+    db['matched'] = counts
+
 def record_failure(db, video_id):
     """Count one failed attempt in the database (any type is tolerated)."""
     counts = failures(db)
@@ -1798,6 +1815,7 @@ def sync(client, videos, playlist, token, state, dry_run, counts, overrides=None
                 evidence.pop(vid, None)   # matched now: no need to explain it later
                 artist_names = ', '.join(a.get('name', '') for a in track.get('artists', []))
                 LOG.info('%s MATCH %s: %s — %s', method, vid, log_text(track['name']), log_text(artist_names))
+            record_match(db, method)   # saved with the next write, never on its own
             if tid in planned or tid in queued:
                 # Two videos resolved to the same track: add it only once.
                 counts['skip'] += 1
@@ -1993,6 +2011,49 @@ def skip_expired(entry, cutoff):
     return saved <= cutoff
 
 
+def stats_report(path, title='Match statistics', limit=40):
+    """Markdown table of which method found how many songs, from the database.
+
+    This is the history that answers "which steps earn their place" - the
+    per-run line only shows one run.
+    """
+    try:
+        state = load_state(path)
+    except FatalError as exc:
+        return f'### 📊 {title}\n\nCould not read `{path}`: {exc}\n'
+    lines = [f'### 📊 {title}', '']
+    any_row = False
+    for playlist, db in sorted((state.get('playlists') or {}).items()):
+        if not isinstance(db, dict):
+            continue
+        counts = step_stats(db)
+        saved = len(db.get('videos') or {})
+        skipped = len(db.get('skipped') or {}) if isinstance(db.get('skipped'), dict) else 0
+        lines += [f'**`{playlist}`** — saved {saved}, skipped {skipped}, '
+                  f'matched {sum(value for value in counts.values() if isinstance(value, int))}', '']
+        if not counts:
+            lines += ['No match recorded yet (the tally starts with the next run).', '']
+            continue
+        any_row = True
+        total = sum(value for value in counts.values() if isinstance(value, int)) or 1
+        # The three classic methods first (they do most of the work), then the
+        # extra steps by how many songs they found.
+        codes = sorted(counts, key=lambda code: (code not in ('STRICT', 'LOOSE', 'DETAIL'),
+                                                 -counts.get(code, 0), code))[:limit]
+        lines += ['| # | Method | Songs | Share | Kind |', '|---|---|---|---|---|']
+        for number, code in enumerate(codes, 1):
+            value = counts.get(code) or 0
+            kind = 'classic' if code in ('STRICT', 'LOOSE', 'DETAIL') else 'extra step'
+            lines.append(f'| {number} | `{code}` | **{value}** | {value * 100 / total:.0f}% | {kind} |')
+        lines.append('')
+        unused = [step.code for step in search_steps.STEPS if step.code not in counts]
+        if unused:
+            lines += ['Never matched: ' + ', '.join(f'`{code}`' for code in unused), '']
+    if not any_row:
+        lines += ['Nothing counted yet: the tally is written by the runs themselves.', '']
+    return '\n'.join(lines).rstrip() + '\n'
+
+
 def explain(state=None, limit=25):
     """Search every remembered skip again and print what Spotify returned.
 
@@ -2066,6 +2127,8 @@ def main():
                         help='print a markdown summary of the sync database and exit')
     parser.add_argument('--playlist-title', action='store_true',
                         help='print the YouTube playlist name and its link, then exit')
+    parser.add_argument('--stats', action='store_true',
+                        help='print which search step found how many songs (from the database), then exit')
     parser.add_argument('--steps', action='store_true',
                         help='list the extra search steps and exit')
     parser.add_argument('--explain', action='store_true',
@@ -2088,6 +2151,9 @@ def main():
         print(db_summary(STATE_PATH), end='')
         return 0
     logging.basicConfig(level=logging.INFO, format='%(levelname)s %(message)s')
+    if args.stats:
+        print(stats_report(STATE_PATH), end='')
+        return 0
     if args.steps:
         for number, step in enumerate(search_steps.STEPS, start=1):
             print(f'{number:2d}. {step.code:<10} {step.title}')

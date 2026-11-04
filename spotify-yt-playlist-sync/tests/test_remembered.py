@@ -280,6 +280,33 @@ class RememberedTests(unittest.TestCase):
         self.assertNotIn('skipped', self.state['playlists']['playlist'])
         self.assertIn('2 remembered skip(s) removed', buf.getvalue())
 
+    def test_the_match_tally_is_kept_per_method(self):
+        self.run_sync([NO_MATCH], dry=False)
+        db = self.state['playlists']['playlist']
+        self.assertEqual(app.step_stats(db), {})
+
+        counts, _, _ = self.run_sync([{'id': 'EEEEEEEEEEE', 'title': 'Artist - Good Song',
+                                       'channel': 'U'}], dry=False)
+        self.assertEqual(counts['add'], 1)
+        self.assertEqual(app.step_stats(db), {'STRICT': 1})
+
+    def test_the_stats_report_lists_methods_and_unused_steps(self):
+        db = self.state['playlists'].setdefault('playlist', {'videos': {}, 'skipped': {}})
+        db['matched'] = {'STRICT': 7, 'LOOSE': 2, 'SUFFIX': 1}
+        app.save_state(self.path, self.state)
+        report = app.stats_report(self.path)
+        self.assertIn('`STRICT`', report)
+        self.assertIn('**7**', report)
+        self.assertIn('70%', report)
+        self.assertIn('Never matched:', report)
+        self.assertIn('`TOPRESULT`', report)
+        self.assertNotIn('None', report.split('Never matched:')[0])
+
+    def test_stats_report_survives_a_missing_database(self):
+        report = app.stats_report(self.path)
+        self.assertIn('Match statistics', report)
+        self.assertIn('Nothing counted yet', report)
+
     def test_skipped_entries_are_tiny(self):
         self.run_sync([NO_MATCH])
         saved = json.loads(self.path.read_text(encoding='utf-8'))

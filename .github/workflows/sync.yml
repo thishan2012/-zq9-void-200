@@ -112,7 +112,9 @@ jobs:
       # page so the saved songs are visible without cloning the repository.
       - name: Show the sync database
         if: ${{ always() && steps.sync.outcome != 'skipped' }}
-        run: python -m syncer.app --db-summary >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          python -m syncer.app --db-summary >> "$GITHUB_STEP_SUMMARY"
+          python -m syncer.app --stats >> "$GITHUB_STEP_SUMMARY"
 
       - name: Job summary
         if: ${{ always() && steps.sync.outcome != 'skipped' }}

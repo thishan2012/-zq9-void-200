@@ -194,6 +194,38 @@ track එක Spotify එකට ආයේ ආව දාට විතරක් `--
 `MONTAGEM MIAU` වගේ line එකක් description එකේ තනියෙම තිබ්බොත් (label එකක් නැතුව), ඒක song නම විදිහට try කරනවා.
 ඒත් `Subscribe …`, `Listen …`, links, hashtags, genre වචන විතරක් තියෙන lines **මග හරිනවා**; floor එක **0.92** (SONGTAG එකේ 0.90 ට වඩා දැඩි).
 
+## 2b4. `--stats` — step එකකට කීයක් හම්බ වුණාද (history)
+
+හැම run එකක්ම හම්බ වුණ සින්දුවක් **method එකත් එක්ක** `data/sync-state.json` එකේ `matched` එකට එකතු කරනවා:
+
+```json
+"matched": { "STRICT": 70, "LOOSE": 9, "SUFFIX": 4, "DURATION": 3, "TOPIC": 1 }
+```
+
+```bash
+python -m syncer.app --stats
+```
+
+ප්‍රතිදානය:
+
+```
+### 📊 Match statistics
+
+**`PLUZA…`** — saved 41, skipped 3, matched 89
+
+| # | Method | Songs | Share | Kind |
+|---|---|---|---|---|
+| 1 | `STRICT` | **70** | 79% | classic |
+| 2 | `LOOSE`  | **9**  | 10% | classic |
+| 3 | `SUFFIX` | **4**  |  4% | extra step |
+…
+Never matched: `REVERSED`, `SINGLE`, `SHORT`, …
+```
+
+* මේකෙන් පේනවා **කුමන steps වැඩ කරනවද** කියලා → පස්සේ step කපනවද නැද්ද කියලා data එකෙන් තීරණය කරන්න.
+* Dry run එකකින් count වෙන්නේ නෑ (dry run එකේ bookkeeping විතරයි) — live run එකකින් + dry run එකේ skip වුණ ඒවා වෙනස්.
+* ඒකම table එක Actions **job summary** එකටත් append වෙනවා.
+
 ## 2b1a. Rate limit — search ගණන පාලනය
 
 Steps 28ක් තියෙන නිසා එක සින්දුවකට search 30ක් යන එක නවත්තලා තියෙනවා:
