@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-11-04 (summary fixes after the first live run)
+
+The first real run added 158 tracks. Its summary then raised three fair questions, all of them display or
+bookkeeping problems rather than matching problems:
+
+* **`matched 316` beside `saved 158`** - the tally is the whole history and the dry run that previewed the
+  live run counted too. The line now says so: `matched 316 (all runs so far, dry runs included)`.
+* **`DURATION`: 4 songs found, `—` queries** - those searches came from the run cache, so no new request was
+  sent. A dash read as "this step did nothing"; it now says `cached`.
+* **Steps that ran but never sent a new query were listed as "Never tried"** - a step that was tried (cache
+  hits, or a query it could not build) now goes to "Tried but never won" instead of the "leave it alone" list.
+
+Also fixed: **a live run that added no song wrote no state file at all**, so its skip/failure counters (and
+the summary built from them) were lost. The bookkeeping is now saved immediately in a live run and deferred
+to the end of a dry run, so a preview still changes nothing.
+
+Tests: **234**.
+
 ## 2026-11-04 (`--stats` tells "never won" apart from "never ran")
 
 The first live run showed why the tally was misleading: it counted only the step that *won* each song, so

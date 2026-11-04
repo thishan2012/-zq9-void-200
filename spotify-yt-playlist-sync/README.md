@@ -153,8 +153,10 @@ Spotify, a private video turned public, or a rule was fixed. The entry is remove
 `data/sync-state.json`, so the next run searches that song again and may report it once more.
 
 `--stats` prints the match tally that every run keeps in `data/sync-state.json` (`matched`, `worked`,
-`ran`): songs per method, their share, how many queries each step spent, the steps that search but never win
-(candidates for removal) and the steps whose condition never applied (leave those alone). The same table is appended to the Actions job summary.
+`ran`): songs per method, their share, how many queries each step spent (`cached` = it worked from the run
+cache without a new request), the steps that search but never win (candidates for removal) and the steps
+whose condition never applied (leave those alone). The numbers are the whole history, so they keep growing
+across runs while `saved` shows the playlist's actual size. The same table is appended to the Actions job summary.
 
 **The weekly run does this by itself.** Besides the six 4-hourly runs, the schedule has one weekly entry
 (`0 3 * * 0`, Sunday 03:00 UTC) that also retries every skip older than `RETRY_AFTER_DAYS` (7). A track that

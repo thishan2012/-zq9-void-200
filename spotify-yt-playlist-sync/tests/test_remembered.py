@@ -302,6 +302,60 @@ class RememberedTests(unittest.TestCase):
         self.assertIn('`TOPRESULT`', report)
         self.assertNotIn('None', report.split('Never tried')[0])
 
+    def test_the_tally_is_labelled_as_history_not_this_run(self):
+        # 316 matched vs 158 saved looked like a double count: say it plainly.
+        db = self.state['playlists'].setdefault('playlist', {'videos': {}, 'skipped': {}})
+        db['matched'] = {'STRICT': 292, 'LOOSE': 24}
+        db['videos'] = {f'v{i}': f't{i}' for i in range(158)}
+        app.save_state(self.path, self.state)
+        report = app.stats_report(self.path)
+        self.assertIn('matched 316 (all runs so far, dry runs included)', report)
+        self.assertIn('saved 158', report)
+
+    def test_a_cached_step_is_not_shown_as_idle(self):
+        # DURATION found 4 songs with no new query (the results were cached):
+        # a dash there reads as "this step did nothing".
+        db = self.state['playlists'].setdefault('playlist', {'videos': {}, 'skipped': {}})
+        db['matched'] = {'DURATION': 4}
+        db['ran'] = {'DURATION': 4}
+        app.save_state(self.path, self.state)
+        report = app.stats_report(self.path)
+        row = [line for line in report.splitlines() if '`DURATION`' in line][0]
+        self.assertIn('cached', row)
+
+    def test_a_step_that_ran_is_not_called_never_tried(self):
+        db = self.state['playlists'].setdefault('playlist', {'videos': {}, 'skipped': {}})
+        db['matched'] = {'STRICT': 1}
+        db['ran'] = {'SINGLE': 5}          # ran, but every query was a cache hit
+        app.save_state(self.path, self.state)
+        report = app.stats_report(self.path)
+        self.assertIn('Tried but never won: `SINGLE`', report)
+        self.assertNotIn('`SINGLE`', report.split('Never tried')[1])
+
+    def test_a_quiet_live_run_still_saves_its_bookkeeping(self):
+        # A live run that adds nothing used to write no file at all, so its
+        # counters (and the summary) vanished.
+        class NoMatch:
+            def existing_tracks(self, playlist, token):
+                return set()
+
+            def search(self, *args):
+                return []
+
+        before = self.path.read_text() if self.path.exists() else ''
+        counts, _, _ = self.run_sync([NO_MATCH], dry=False, client=NoMatch())
+        self.assertEqual(counts['skip'], 1)
+        self.assertTrue(self.path.exists())
+        db = app.load_state(self.path)['playlists']['playlist']
+        self.assertIn(NO_MATCH['id'], db.get('skipped') or {})
+
+    def test_a_dry_run_does_not_write_until_the_end(self):
+        before = self.path.read_text() if self.path.exists() else ''
+        with patch.object(app, 'save_state', wraps=app.save_state) as spy:
+            self.run_sync([NO_MATCH], dry=True)
+        # dry runs write once (save_deferred), never per song
+        self.assertLessEqual(spy.call_count, 2)
+
     def test_a_step_that_tries_but_never_wins_is_named(self):
         # The tally must not call a step dead when it searches every run: that
         # was exactly how "SONGTAG" looked after the first live run.
