@@ -366,6 +366,67 @@ class DescriptionSongTests(unittest.TestCase):
         self.assertNotIn('phonk', [song.casefold() for song in songs])
 
 
+class DescriptionLabelTests(unittest.TestCase):
+    """More labelled lines the descriptions use (Track:, Prod. by, ISRC)."""
+
+    def test_track_label_and_song_name(self):
+        self.assertEqual(app.description_song('Track: MONTAGEM MIAU')[0], 'MONTAGEM MIAU')
+        self.assertEqual(app.description_song('Song name: MONTAGEM MIAU')[0], 'MONTAGEM MIAU')
+
+    def test_producer_lines(self):
+        for line in ('Prod. by DJ NEO', 'Prod: DJ NEO', 'Produced by DJ NEO',
+                     'Producer: DJ NEO', 'Music by DJ NEO', 'Prod.DJ NEO'):
+            self.assertEqual(app.description_producers(line), ['DJ NEO'], line)
+
+    def test_a_generic_producer_name_is_ignored(self):
+        self.assertEqual(app.description_producers('Prod. by Music'), [])
+
+    def test_isrc_is_read_but_only_as_evidence(self):
+        self.assertEqual(app.description_isrc('ISRC: BRABC2401234'), 'BRABC2401234')
+        self.assertEqual(app.description_isrc('no code here'), '')
+        # It changes nothing on its own: no song name, no match.
+        self.assertIsNone(app.description_song('ISRC: BRABC2401234'))
+
+
+class ProducerCreditTests(StepTestCase):
+    """"Prod. by X" is a real credit: it may match, and it never conflicts."""
+
+    def video_item(self, description='Song: MONTAGEM MIAU\nProd. by DJ NEO'):
+        return video('MONTAGEM MIAU 🔥', channel='Phonk Daily', description=description)
+
+    def test_a_track_credited_to_the_producer_is_found(self):
+        found, _ = self.run_step(search_steps.SongTagStep, self.video_item(),
+                                 Catalog([track('t1', 'MONTAGEM MIAU', 'DJ NEO')]))
+        self.assertEqual(found['id'], 't1')
+
+    def test_the_producer_credit_does_not_make_a_different_artist_acceptable(self):
+        found, _ = self.run_step(search_steps.SongTagStep, self.video_item(),
+                                 Catalog([track('t1', 'MONTAGEM MIAU', 'Somebody')]))
+        self.assertIsNone(found)
+
+
+class LooseDescriptionStepTests(StepTestCase):
+    def test_a_bare_description_line_is_used(self):
+        video_item = video('MONTAGEM MIAU 🔥', channel='Phonk Daily',
+                           description='MONTAGEM MIAU\nProd. by DJ NEO')
+        found, _ = self.run_step(search_steps.LooseDescriptionStep, video_item,
+                                 Catalog([track('t1', 'MONTAGEM MIAU', 'DJ NEO')]))
+        self.assertEqual(found['id'], 't1')
+
+    def test_calls_to_action_are_not_song_names(self):
+        video_item = video('MONTAGEM MIAU 🔥', channel='Phonk Daily',
+                           description='Subscribe for daily phonk uploads\nListen on all platforms')
+        step = search_steps.LooseDescriptionStep(video_item, app.metadata(video_item), {})
+        self.assertEqual(step.lines(), [])
+        self.assertFalse(step.applies())
+
+    def test_a_different_song_is_refused(self):
+        video_item = video('MONTAGEM MIAU 🔥', channel='Phonk Daily', description='MONTAGEM RUNE')
+        found, _ = self.run_step(search_steps.LooseDescriptionStep, video_item,
+                                 Catalog([track('t1', 'MONTAGEM MIAU', 'DJ NEO')]))
+        self.assertIsNone(found)
+
+
 class LinkedTrackStepTests(StepTestCase):
     """The uploader pasted the Spotify link: no search needed, only the version."""
 

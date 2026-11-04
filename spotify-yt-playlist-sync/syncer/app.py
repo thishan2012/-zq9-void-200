@@ -27,7 +27,7 @@ SEARCH_PAUSE_SECONDS = 0.5  # gap between two real searches (on top of REQUEST_D
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
-MATCHER_VERSION = 11  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 12  # bump when matching rules change: skipped songs get one more try.
 RETRY_AFTER_DAYS = 7  # a remembered skip is retried by the weekly run after this long.
 # Set by the weekly schedule (one run a week, not every four hours).
 RETRY_ENABLED = os.environ.get('RETRY_SKIPPED', '').strip().lower() in ('1', 'true', 'yes')
@@ -759,8 +759,14 @@ def description_credit(title, description):
 
 # A description often states the song and the artist on labelled lines:
 #   Song: MONTAGEM MIAU      Track - MONTAGEM MIAU      Artist: DJ NEO
-SONG_LABEL = re.compile(r'^\s*(?:song|track|title|music|audio)\s*[:\-–]\s*(.{2,120})$', re.I)
+SONG_LABEL = re.compile(r'^\s*(?:song|track|title|music|audio)(?:\s*name)?\s*[:\-–]\s*(.{2,120})$', re.I)
 ARTIST_LABEL = re.compile(r'^\s*(?:artist|artists|performed by|by)\s*[:\-–]\s*(.{2,120})$', re.I)
+# The producer is not always the credited artist on Spotify, but phonk uploads
+# often name only this one, so it is used as a *later* artist candidate.
+PRODUCER_LABEL = re.compile(r'^\s*(?:producers?|music\s+by|prod(?:uced)?\.?(?:\s+by)?)\s*[:\-–]?\s*(.{2,100})$', re.I)
+# An ISRC means the description is a real release page, which makes the stated
+# song name worth trusting a little more (never the version or artist checks).
+ISRC_LABEL = re.compile(r'\bISRC\b\s*[:\-]?\s*([A-Za-z]{2}[A-Za-z0-9]{3}\d{7})\b', re.I)
 QUOTED = re.compile(r'["“”\'‘’]([^"“”\'‘’]{3,90})["“”\'‘’]')
 MUSIC_NOTE = re.compile(r'^\s*[♪♫🎵🎶]+\s*(.{2,120})$')
 SPOTIFY_TRACK_LINK = re.compile(r'open\.spotify\.com/(?:intl-[A-Za-z-]+/)?track/([A-Za-z0-9]{22})')
@@ -808,6 +814,22 @@ def description_song(description):
     if not song:
         return None
     return song, artists
+
+def description_producers(description):
+    """Artist names stated as the producer ("Prod. by DJ NEO")."""
+    names = []
+    for line in description_lines(description):
+        if len(line) > 200 or '://' in line:
+            continue
+        found = PRODUCER_LABEL.match(line)
+        if found and normalized(found.group(1)):
+            names.extend(artist_candidates(found.group(1)))
+    return [name for name in names if not is_generic_name(name)]
+
+def description_isrc(description):
+    """The ISRC the description states, if any (only used as extra evidence)."""
+    found = ISRC_LABEL.search(str(description or ''))
+    return found.group(1).upper() if found else ''
 
 def tag_songs(video):
     """Song-like candidates from hashtags and the uploader's own tags."""

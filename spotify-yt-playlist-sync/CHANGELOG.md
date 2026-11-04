@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-11-04 (a richer description parser)
+
+More of what uploads already write in the description is now read, so videos whose title is marketing text
+are matched without guessing:
+
+* **`Song name: …` / `Track: …` / `Title: …`** as well as `Song: …`.
+* **`Prod. by DJ NEO` / `Prod: …` / `Produced by …` / `Producer: …` / `Music by …`** are read as an artist
+  credit: a track credited to the producer is no longer a conflict (phonk uploads often name only that
+  producer), while the producer alone never makes a *different* artist acceptable.
+* **`ISRC: …`** is read for evidence only (Spotify search has no ISRC field), and a description that is a real
+  release page no longer has to be guessed from its wording.
+* **`DESCTEXT` (new step 23)** - a short line with no label at all (`MONTAGEM MIAU`) is tried as the song
+  name, with the producer/channel as the artist, a **0.92** floor, and calls to action
+  ("Subscribe …", "Listen …"), links, hashtags and genre words skipped entirely.
+
+The chain is **28** steps and `TOPRESULT` is still last. `MATCHER_VERSION` is now **12**. Tests: **221**.
+
 ## 2026-11-04 (weekly retry of skipped songs)
 
 The schedule now has a second cron: **Sunday 03:00 UTC** (`0 3 * * 0`). Only that run sets `RETRY_SKIPPED`,
