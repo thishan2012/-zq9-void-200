@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-11-04 ("Release - Topic" pages and the slowed ladder)
+
+### A "… - Topic" page is never the song
+
+`MONTAGEM GALACTO LOCONA (Ultra Slowed)` on **Release - Topic** was being read as artist `Release`, song
+`MONTAGEM …` - so every query carried a fake artist and `artist_ok()` refused the right track.
+
+* A **named** Topic page is an artist: `HDN - Topic` → artist `HDN` (unchanged, plus the `- Topic` suffix is
+  stripped from the search term itself).
+* A **compilation** Topic page says nothing: `Release - Topic`, `Releases - Topic` → no artist credit, so the
+  title is the song and the extra steps search it alone - the version and the title are still checked exactly
+  as before. A channel name with `release`/`releases` in it can no longer become a search term.
+
+### The slowed ladder in the `SLOWED` step
+
+Spotify often has only one rung of the ladder. `SLOWED` now accepts the same song at another rung
+(`Slowed` for an `Ultra Slowed` video) - never the original, a remix or a sped-up edit - and still refuses
+when two *different* rungs come back.
+
+`MATCHER_VERSION` is now **6**. Tests: **146**.
+
 ## 2026-11-04 (BROKEN + the run that went red)
 
 ### Step 20: `BROKEN` - a title whose dash halves are swapped

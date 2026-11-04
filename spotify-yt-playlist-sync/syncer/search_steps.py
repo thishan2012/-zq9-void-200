@@ -39,6 +39,11 @@ def version_ok(version_text, track):
             or app.upgraded_edit(version_text, track.get('name', '')))
 
 
+def track_versions(tokens):
+    """The slowed rungs a track name carries, for the SLOWED step's tie check."""
+    return {name for name in tokens if name in app.SLOWED_LADDER}
+
+
 def unique(candidates):
     seen, ordered = set(), []
     for track in candidates:
@@ -428,11 +433,22 @@ class SlowStep(Step):
         if len(song) < 3:
             return None
         candidates = self.search(client, token, '', f'{song} slowed')
-        keep = [track for track in candidates
-                if 'slowed' in app.version_tokens(track.get('name', ''))
-                and app.search_core(track.get('name', '')) == song
-                and artist_ok(self, track)]
-        return one_of(keep)
+        # Which slowed edit the video is: "slowed", "ultra slowed", "super slowed".
+        # Spotify often carries only one rung of the ladder, so the same song at
+        # another rung is accepted - but never the original, a remix or a sped-up
+        # edit, and never two different rungs at once (that is ambiguous).
+        keep = []
+        for track in candidates:
+            found = app.version_tokens(track.get('name', ''))
+            if 'slowed' not in found or app.search_core(track.get('name', '')) != song:
+                continue
+            if not artist_ok(self, track):
+                continue
+            keep.append(track)
+        if len({frozenset(track_versions(app.version_tokens(t.get('name', ''))))
+                for t in keep}) > 1:
+            return None          # several different edits: do not guess
+        return keep[0] if keep else None
 
 
 class UploaderSearchStep(Step):
