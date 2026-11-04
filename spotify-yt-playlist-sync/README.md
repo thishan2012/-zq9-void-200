@@ -141,7 +141,7 @@ export YOUTUBE_API_KEY='…'
 .venv/bin/python -m syncer.app --forget-video aLZNbOUOyI4   # search that skipped song again
 .venv/bin/python -m syncer.app --forget-skipped             # search every remembered skip again
 .venv/bin/python -m syncer.app --reset-db all                # EMERGENCY: preview emptying the database
-.venv/bin/python -m unittest discover -s tests -v   # 241 tests
+.venv/bin/python -m unittest discover -s tests -v   # 246 tests
 ```
 
 `--explain` searches every remembered skip once more and prints, per song, what `STRICT`/`LOOSE` and each
@@ -234,7 +234,7 @@ syncer/app.py                all logic (YouTube, Spotify transport, matching, ba
 data/sync-state.json         database: per playlist {videos, pending}
 data/track-overrides.json    manual YouTube → Spotify mappings
 instructions/00…11-*.md      A–Z guides (start at instructions/README.md)
-tests/                       241 unit tests (matching, transport, batching, rate limits, reporting)
+tests/                       246 unit tests (matching, transport, batching, rate limits, reporting)
 cookies/README.md            why the cookie file is not in Git
 ```
 

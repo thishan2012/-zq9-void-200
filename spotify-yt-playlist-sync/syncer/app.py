@@ -27,7 +27,7 @@ SEARCH_PAUSE_SECONDS = 0.5  # gap between two real searches (on top of REQUEST_D
 TELEGRAM_MAX_MESSAGES = 6  # hard cap on messages per run (spam / rate-limit guard).
 MAX_REPORTED_FAILURES = 2  # a failing song is logged at most twice, then goes quiet.
 PICK_LINKS_PER_RUN = 5  # manual search links in the per-song log (keeps the message cap).
-MATCHER_VERSION = 13  # bump when matching rules change: skipped songs get one more try.
+MATCHER_VERSION = 14  # bump when matching rules change: skipped songs get one more try.
 RETRY_AFTER_DAYS = 7  # a remembered skip is retried by the weekly run after this long.
 # Set by the weekly schedule (one run a week, not every four hours).
 RETRY_ENABLED = os.environ.get('RETRY_SKIPPED', '').strip().lower() in ('1', 'true', 'yes')
@@ -671,9 +671,15 @@ def artist_candidates(credit):
 
     "A, B, C", "A & B", "A x B", "A × B", "A + B", "A feat. B" and "A / B" all
     become separate names, so a collab credit can match Spotify's artist list.
+
+    A name may itself end in a lone "X" ("MC X", "DJ X"); that letter is held
+    together before the split, so "MC X & DJ Y" is two names, not ["MC", "DJ Y"].
     """
+    protected = LONE_X_IN_NAME.sub(lambda match: match.group(1) + NAME_JOIN + match.group(2),
+                                  credit or '')
     names = []
-    for part in COLLAB_SEPARATOR.split(credit or ''):
+    for part in COLLAB_SEPARATOR.split(protected):
+        part = part.replace(NAME_JOIN, ' ')
         part = part.strip(' ,.')
         if part.endswith('.') and not is_domain_like(part):
             # "Mr.Kitty ." / "Signals.yt" pasted from a filename: the dot is not
@@ -682,6 +688,12 @@ def artist_candidates(credit):
         if part and normalized(part) and normalized(part) not in {'x', 'ft', 'feat'}:
             names.append(part)
     return names
+
+# "MC X", "DJ Y": the X is part of the name, not a collaboration marker. It is
+# held together (with a sentinel that cannot appear in a name) while the credit
+# is split, then restored - otherwise "MC X & DJ Y" becomes ["MC", "DJ Y"].
+LONE_X_IN_NAME = re.compile(r'\b(MC|DJ)\s+([XYZ])\b', re.I)
+NAME_JOIN = '\u0001'
 
 def is_collab_credit(credit):
     """True when the text looks like more than one artist name."""
@@ -2206,7 +2218,10 @@ def stats_report(path, title='Match statistics', limit=40):
         total = sum(value for value in counts.values() if isinstance(value, int)) or 1
         # The three classic methods first (they do most of the work), then the
         # extra steps by how many songs they found.
-        codes = sorted(set(counts) | set(worked),
+        # Every step that was *tried* gets a row, even when it spent no new query
+        # (a cache hit) - otherwise TOPRESULT and friends vanish from the table
+        # while still being listed below, which reads like a contradiction.
+        codes = sorted(set(counts) | set(worked) | set(ran),
                        key=lambda code: (code not in ('STRICT', 'LOOSE', 'DETAIL'),
                                          -counts.get(code, 0), -worked.get(code, 0), code))[:limit]
         lines += ['| # | Method | Songs found | Share | Queries sent | Kind |',

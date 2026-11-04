@@ -135,11 +135,23 @@ def conflict(step, track):
 
 
 def shared_credit(a, b):
-    """True when two artist names are the same act (short form included)."""
-    a, b = a.replace(' ', ''), b.replace(' ', '')
-    if not a or not b:
+    """True when two artist names are the same act.
+
+    Three shapes agree: the short form of a longer name ("Nulteex" /
+    "Nulteex Music"), one act inside a combined credit ("MC X" inside Spotify's
+    single artist "MC X & DJ Y"), and the same act with punctuation or extra
+    spacing ("MCSep" / "MC Sep").
+    """
+    def clean(text):
+        return ' '.join(str(text or '').split()).strip(' ,.&+/-').casefold()
+
+    raw_a, raw_b = clean(a), clean(b)
+    if not raw_a or not raw_b:
         return False
+    a, b = raw_a.replace(' ', ''), raw_b.replace(' ', '')
     if a == b:
+        return True
+    if raw_a in raw_b or raw_b in raw_a:
         return True
     short, long = (a, b) if len(a) <= len(b) else (b, a)
     return len(short) >= 4 and long.startswith(short)

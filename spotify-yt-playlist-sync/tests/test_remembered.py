@@ -325,6 +325,18 @@ class RememberedTests(unittest.TestCase):
         row = [line for line in report.splitlines() if '`DURATION`' in line][0]
         self.assertIn('cached', row)
 
+    def test_a_step_that_only_reused_the_cache_still_gets_a_row(self):
+        # TOPRESULT was listed as "tried but never won" while having no row at
+        # all, which reads like a contradiction.
+        db = self.state['playlists'].setdefault('playlist', {'videos': {}, 'skipped': {}})
+        db['matched'] = {'STRICT': 1}
+        db['ran'] = {'TOPRESULT': 2}
+        app.save_state(self.path, self.state)
+        report = app.stats_report(self.path)
+        rows = [line for line in report.splitlines() if line.startswith('| ')]
+        self.assertTrue(any('`TOPRESULT`' in row for row in rows), rows)
+        self.assertTrue(any('`TOPRESULT`' in row and 'cached' in row for row in rows), rows)
+
     def test_a_step_that_ran_is_not_called_never_tried(self):
         db = self.state['playlists'].setdefault('playlist', {'videos': {}, 'skipped': {}})
         db['matched'] = {'STRICT': 1}

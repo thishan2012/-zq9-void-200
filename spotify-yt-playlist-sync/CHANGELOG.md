@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-11-04 (credit splitting fix behind the 17 wasted `REVERSED` searches)
+
+The first clean live run showed `REVERSED` spending **17 real queries and winning nothing**, and
+`--stats` listing `TOPRESULT` as "tried but never won" while giving it no row at all. Both were real bugs:
+
+* **"MC X" was split into "MC"** - the collaboration splitter treats a lowercase ` x ` as "and", so a name
+  ending in a lone letter (`MC X`, `DJ X`) became `MC` / `DJ`, a search term no Spotify artist has. The
+  letter is now held together before the split, so `MC X & DJ Y` is `["MC X", "DJ Y"]` and `DJ NEO x MC X` is
+  `["DJ NEO", "MC X"]`, while a real collaboration (`A x B`) still splits.
+* **A track credited to the whole collaboration looked like a conflict** - Spotify often keeps
+  `MC X & DJ Y` in one artist name; neither half matched the joined string, so the correct track was
+  rejected. `shared_credit()` now also compares the *words inside* a credit, and strips stray punctuation
+  and spacing on both sides. A genuinely different artist is still a conflict.
+* **`--stats` now gives a row to every step that was tried**, even when all its queries came from the run
+  cache (they show as `cached`). Before, `TOPRESULT` appeared in the "tried but never won" line with no row
+  above it.
+
+`MATCHER_VERSION` is now **14**, so the remembered skips get one more try under the fixed rules. Tests:
+**246**.
+
 ## 2026-11-04 (`--reset-db`: the emergency switch)
 
 A way to throw the bookkeeping away without touching the playlist:
