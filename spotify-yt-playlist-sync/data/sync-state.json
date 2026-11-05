@@ -160,11 +160,16 @@
         "E-oPcDnX738": "3DPulduJFJMe4yh48laK5H",
         "W8RoW58lPTk": "16vX8IXjNF9ZvUD3ROx8iR",
         "KgayxOF4Y7E": "4sTlQPMyoFMPdhAJvErBN3",
-        "jtl8q8FE7r8": "6ECeNEd9yRXWYrP2lDQfRa"
+        "jtl8q8FE7r8": "6ECeNEd9yRXWYrP2lDQfRa",
+        "dpjU9rSof6U": "7xEI8DdQZlbcLlg8vdZoYS",
+        "56lQeP9pyVo": "08gHrqfrn7TJPmSGQtHKQh",
+        "KVtOh6lvyGs": "7HYlIzO4L2qnodZ9MDCCYX",
+        "oZkrN3qETk4": "4Et06KydtglekKAYvknn8v",
+        "jc0yNsolGSM": "57CZzt1WPnYawheWRQrBYW"
       },
       "pending": null,
       "worked": {
-        "STRICT": 161,
+        "STRICT": 166,
         "LOOSE": 13,
         "SUFFIX": 4,
         "FIELD": 14,
@@ -203,7 +208,7 @@
         "TOPIC": 3
       },
       "matched": {
-        "STRICT": 147,
+        "STRICT": 152,
         "CHANNEL": 4,
         "FIELD": 2,
         "MANUAL": 1,
