@@ -238,6 +238,13 @@ jobs:
           COMMIT_EMAIL: ${{ vars.COMMIT_EMAIL || 'thishcrvwqe-bot@users.noreply.github.com' }}
           BOT_EMAIL: '41898282+github-actions[bot]@users.noreply.github.com'
         run: |
+          echo "::group::Database commit diagnostics"
+          git status --short -- data/ || true
+          git log --oneline -1
+          echo "HEAD: $(git rev-parse --abbrev-ref HEAD) $(git rev-parse --short HEAD)"
+          # Never print the token that checkout put in the remote URL.
+          git remote -v | sed 's#https://[^@/]*@#https://***@#'
+          echo "::endgroup::"
           git config user.name "$COMMIT_NAME"
           git config user.email "$COMMIT_EMAIL"
           git add data/sync-state.json
@@ -259,7 +266,7 @@ jobs:
             HEARTBEAT=1
           fi
           if git diff --quiet -- data/sync-state.json && [ -z "$HEARTBEAT" ]; then
-            echo 'No database changes.'
+            echo '::notice::No database changes in this run, so there is nothing to commit.'
             exit 0
           fi
           if [ "$DRY_RUN" = "true" ]; then
@@ -285,7 +292,7 @@ jobs:
               || git rebase --abort >/dev/null 2>&1 || true
           }
           rebase
-          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+          if git push origin "HEAD:${GITHUB_REF_NAME}" 2>&1; then
             echo "::notice::Database commit by $COMMIT_NAME <$COMMIT_EMAIL>"
             echo 'Database saved.'
             exit 0
@@ -298,8 +305,12 @@ jobs:
           git config user.email "$BOT_EMAIL"
           git commit --amend --reset-author --no-edit
           rebase
-          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+          if git push origin "HEAD:${GITHUB_REF_NAME}" 2>&1; then
             echo 'Database saved (as github-actions[bot]).'
           else
-            echo "::warning::Could not push data/sync-state.json to ${GITHUB_REF_NAME}. The sync itself finished; the bookkeeping will be rebuilt by the next run."
+            echo "::group::Why the push failed"
+            git log --oneline -3 || true
+            git status --short || true
+            echo "::endgroup::"
+            echo "::error::Could not push data/sync-state.json to ${GITHUB_REF_NAME}. The songs were added, but the database (and the commit name) is now one run behind. Settings -> Actions -> General -> Workflow permissions must be 'Read and write permissions'."
           fi
