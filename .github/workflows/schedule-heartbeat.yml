@@ -1,0 +1,31 @@
+# A tiny workflow whose only job is to prove the schedule trigger fires.
+#
+# The main sync workflow has `on: schedule` with a 6-hourly cron and has never
+# produced a single `schedule` event, while `workflow_dispatch` works fine.
+# This one is deliberately trivial: no secrets, no Spotify, no writes - it only
+# prints the clock. If THIS fires and the sync one does not, the problem is in
+# the sync workflow. If this one never fires either, the schedule trigger is not
+# reaching this repository at all and an external trigger is the way forward.
+#
+# It is throwaway: delete this file once the answer is known.
+name: Schedule check
+
+on:
+  schedule:
+    # Every 30 minutes; GitHub's minimum useful interval.
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Print the clock
+        run: |
+          echo "UTC: $(date -u '+%Y-%m-%d %H:%M:%S')"
+          echo "Trigger: ${{ github.event_name }}"
+          echo "Cron: ${{ github.event.schedule }}"
