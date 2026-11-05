@@ -247,10 +247,10 @@ jobs:
           echo "::endgroup::"
           git config user.name "$COMMIT_NAME"
           git config user.email "$COMMIT_EMAIL"
-          git add data/sync-state.json
-          if [ -f data/sync-state.json.bak ]; then
-            git add -f data/sync-state.json.bak
-          fi
+          # The change test has to run against a clean index: 'git diff' compares
+          # the working tree with the index, so staging the file first made every
+          # run look unchanged and nothing was ever committed. Staging happens
+          # below, after the test.
           # A run with nothing new writes no commit - except on the first run of
           # a month, which carries a one-line heartbeat. Without it a public
           # repository that is quiet for 60 days has its schedules switched off
@@ -265,9 +265,19 @@ jobs:
             && [ "$(git log -1 --format=%s)" != "$HEARTBEAT_MSG" ]; then
             HEARTBEAT=1
           fi
-          if git diff --quiet -- data/sync-state.json && [ -z "$HEARTBEAT" ]; then
+          # status --porcelain also sees a file the run created (an untracked
+          # .bak), which a plain diff would miss.
+          DB_CHANGED=
+          if [ -n "$(git status --porcelain -- data/sync-state.json data/sync-state.json.bak)" ]; then
+            DB_CHANGED=1
+          fi
+          if [ -z "$DB_CHANGED" ] && [ -z "$HEARTBEAT" ]; then
             echo '::notice::No database changes in this run, so there is nothing to commit.'
             exit 0
+          fi
+          git add data/sync-state.json
+          if [ -f data/sync-state.json.bak ]; then
+            git add -f data/sync-state.json.bak
           fi
           if [ "$DRY_RUN" = "true" ]; then
             MESSAGE='Update skip/failure bookkeeping (dry run)'

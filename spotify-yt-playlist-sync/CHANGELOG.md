@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-05 (the database commit works again)
+
+Adding a song left `main` unchanged, run after run, while the run still said success. The step staged
+the file before testing it for changes and then asked `git diff`, which compares the working tree
+with the **index** - so a staged change looked like no change at all and `exit 0` skipped the commit:
+
+```bash
+git add data/sync-state.json          # index now matches the worktree
+git diff --quiet -- data/sync-state.json   # ...so this is always clean
+```
+
+The test now runs first, uses `git status --porcelain` (which also sees a newly created `.bak`), and
+staging happens only after it decides there is something to commit. A rejected push is an `::error::`
+instead of a `::warning::`, the real push error is no longer swallowed, and the step prints its starting
+state in a collapsed group.
+
 ## 2026-11-04 (a run adds at most 15 songs)
 
 A backlog used to be added in one go: the first live run put 158 tracks into the playlist inside a

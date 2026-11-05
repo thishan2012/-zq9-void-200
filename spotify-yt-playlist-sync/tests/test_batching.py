@@ -346,6 +346,38 @@ class DatabaseSummaryTests(unittest.TestCase):
         self.assertIn('| `pl1` | **1** | — |', out.getvalue())
 
 
+class DatabaseCommitStepTests(unittest.TestCase):
+    """The workflow step that commits the database, checked as shell text.
+
+    The step used to stage the file before testing for changes, and 'git diff'
+    compares the working tree with the index - so every run looked unchanged and
+    nothing was ever committed while the run still reported success.
+    """
+
+    def step_run(self):
+        import yaml
+        root = Path(__file__).resolve().parents[2]
+        workflow = root / '.github' / 'workflows' / 'sync.yml'
+        data = yaml.safe_load(workflow.read_text(encoding='utf-8'))
+        steps = data['jobs']['sync']['steps']
+        step = [item for item in steps if item.get('name') == 'Save sync database'][0]
+        return step['run']
+
+    def test_the_change_test_runs_before_the_file_is_staged(self):
+        run = self.step_run()
+        check = run.index("git status --porcelain -- data/sync-state.json")
+        staging = run.index('git add data/sync-state.json')
+        # Staging first would make the check look at a clean index and pass.
+        self.assertLess(check, staging)
+        # And the old worktree-vs-index comparison must be gone.
+        self.assertNotIn('git diff --quiet -- data/sync-state.json', run)
+
+    def test_a_rejected_push_is_an_error_not_a_warning(self):
+        run = self.step_run()
+        self.assertIn('::error::Could not push', run)
+        self.assertNotIn('::warning::Could not push', run)
+
+
 class ScheduleTests(unittest.TestCase):
     def test_workflow_runs_four_times_a_day(self):
         import yaml
