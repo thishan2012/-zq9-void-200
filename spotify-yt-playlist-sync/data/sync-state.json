@@ -178,74 +178,69 @@
         "j2MaNnFJLIU": "61QqHgRVl6RVLboLo2HCtL",
         "bisgEJIR0mg": "6FlT2HOtJSWh0SoF8ZPqxP",
         "weC_kh5hh_Y": "7Eb89mJNqV80sdPWJ77yAt",
-        "1phs471yhvA": "77oh3TqVUtN73fO34Pr80t"
+        "1phs471yhvA": "77oh3TqVUtN73fO34Pr80t",
+        "aLZNbOUOyI4": "4WnqSAFTAH21uoM3DkcBjt"
       },
       "pending": null,
       "worked": {
-        "STRICT": 179,
-        "LOOSE": 13,
-        "SUFFIX": 4,
-        "FIELD": 14,
-        "VARIANTS": 8,
+        "STRICT": 181,
+        "LOOSE": 15,
+        "SUFFIX": 6,
+        "FIELD": 18,
+        "VARIANTS": 10,
         "DURVER": 4,
-        "SONGTAG": 16,
-        "DESCTEXT": 26,
-        "REVERSED": 19,
+        "SONGTAG": 22,
+        "DESCTEXT": 35,
+        "REVERSED": 21,
         "CHANNEL": 2,
         "DETAIL": 6,
-        "BROKEN": 2
+        "BROKEN": 3
       },
       "ran": {
-        "CHANNEL": 12,
-        "SUFFIX": 2,
-        "DURATION": 8,
-        "ARTISTS": 6,
-        "ARTISTLESS": 6,
-        "EXACT": 6,
-        "WORDSET": 6,
-        "UPLOADER": 6,
-        "FIELD": 6,
-        "VARIANTS": 4,
-        "DURVER": 4,
+        "CHANNEL": 14,
+        "SUFFIX": 3,
+        "DURATION": 10,
+        "ARTISTS": 8,
+        "ARTISTLESS": 8,
+        "EXACT": 8,
+        "WORDSET": 8,
+        "UPLOADER": 8,
+        "FIELD": 8,
+        "VARIANTS": 5,
+        "DURVER": 5,
         "CLEANARTIST": 2,
-        "TITLEONLY": 4,
-        "SONGTAG": 4,
-        "DESCTEXT": 4,
-        "BROKEN": 4,
-        "ALBUM": 4,
-        "PART": 4,
-        "POPULAR": 4,
-        "TOPRESULT": 4,
-        "REVERSED": 7,
-        "SINGLE": 7,
-        "TOPIC": 3
+        "TITLEONLY": 5,
+        "SONGTAG": 5,
+        "DESCTEXT": 5,
+        "BROKEN": 5,
+        "ALBUM": 5,
+        "PART": 5,
+        "POPULAR": 5,
+        "TOPRESULT": 5,
+        "REVERSED": 8,
+        "SINGLE": 8,
+        "TOPIC": 4
       },
       "matched": {
         "STRICT": 165,
         "CHANNEL": 4,
-        "FIELD": 2,
+        "FIELD": 3,
         "MANUAL": 1,
         "LOOSE": 2,
         "DURATION": 2
       },
       "skipped": {
-        "aLZNbOUOyI4": {
-          "title": "DESTELLO - HDN | VIRAL PHONK",
-          "since": 14,
-          "at": "2026-11-04T16:03:35+00:00",
-          "channel": "HDN🎹",
-          "retried": 14
-        },
         "fmrsBXzj22Q": {
           "title": "LOUCARA FUNK!",
           "since": 14,
-          "at": "2026-11-04T16:17:22+00:00",
-          "channel": "Espato - Topic"
+          "at": "2026-11-15T10:34:20+00:00",
+          "channel": "Espato - Topic",
+          "retried": 14
         },
         "dOcTxjnGZps": {
           "title": "Private video",
           "since": 14,
-          "at": "2026-11-04T16:17:22+00:00"
+          "at": "2026-11-15T10:34:20+00:00"
         }
       }
     }
